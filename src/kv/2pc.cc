@@ -9,13 +9,6 @@ namespace pingcap
 namespace kv
 {
 
-constexpr uint64_t managedLockTTL = 20000; // 20s
-
-constexpr uint64_t bytesPerMiB = 1024 * 1024;
-
-constexpr uint64_t ttlManagerRunThreshold = 32 * 1024 * 1024;
-
-
 uint64_t txnLockTTL(std::chrono::milliseconds start, uint64_t txn_size)
 {
     uint64_t lock_ttl = defaultLockTTL;
@@ -299,32 +292,6 @@ uint64_t sendTxnHeartBeat(Backoffer & bo, Cluster * cluster, std::string & prima
         }
 
         return response->lock_ttl();
-    }
-}
-
-void TTLManager::keepAlive(TwoPhaseCommitterPtr committer)
-{
-    for (;;)
-    {
-        if (state.load(std::memory_order_acquire) == StateClosed)
-        {
-            return;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(managedLockTTL / 2));
-
-        // TODO: Checks maximum lifetime for the TTLManager
-        Backoffer bo(pessimisticLockMaxBackoff);
-        uint64_t now = committer->cluster->oracle->getLowResolutionTimestamp();
-        uint64_t uptime = pd::extractPhysical(now) - pd::extractPhysical(committer->start_ts);
-        uint64_t new_ttl = uptime + managedLockTTL;
-        try
-        {
-            std::ignore = sendTxnHeartBeat(bo, committer->cluster, committer->primary_lock, committer->start_ts, new_ttl);
-        }
-        catch (...)
-        {
-            return;
-        }
     }
 }
 

@@ -1,7 +1,12 @@
 # TODO We should make a bundled gPRC and protoobuf repository, instance of rely on system library.
 
 # gRPC and relateds
-
+if (APPLE)
+    set(OPENSSL_ROOT_DIR /usr/local/opt/openssl)
+    # if(NOT TESTS)
+    #     set(OPENSSL_USE_STATIC_LIBS TRUE)
+    # endif()
+endif()
 find_package (OpenSSL)
 message (STATUS "Using ssl=${OPENSSL_FOUND}: ${OPENSSL_INCLUDE_DIR} : ${OPENSSL_LIBRARIES}")
 

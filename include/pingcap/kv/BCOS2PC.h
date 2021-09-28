@@ -2,6 +2,7 @@
 
 #include <fiu.h>
 #include <pingcap/Exception.h>
+#include <pingcap/kv/2pc.h>
 #include <pingcap/kv/Backoff.h>
 #include <pingcap/kv/Cluster.h>
 #include <pingcap/kv/LockResolver.h>
@@ -17,93 +18,18 @@ namespace pingcap
 {
     namespace kv
     {
-        constexpr uint32_t txnCommitBatchSize = 16 * 1024;
-        constexpr uint64_t managedLockTTL = 20000; // 20s
-        constexpr uint64_t bytesPerMiB = 1024 * 1024;
-        constexpr uint64_t ttlManagerRunThreshold = 32 * 1024 * 1024;
 
         struct Txn;
 
-        struct TwoPhaseCommitter;
+        struct BCOSTwoPhaseCommitter;
 
-        using TwoPhaseCommitterPtr = std::shared_ptr<TwoPhaseCommitter>;
+        using BCOSTwoPhaseCommitterPtr = std::shared_ptr<BCOSTwoPhaseCommitter>;
 
-        uint64_t sendTxnHeartBeat(Backoffer &bo, Cluster *cluster, std::string &primary_key, uint64_t start_ts, uint64_t ttl);
-
-        uint64_t txnLockTTL(std::chrono::milliseconds start, uint64_t txn_size);
-
-        template <typename T>
-        class TTLManager
-        {
-        private:
-            enum TTLManagerState
-            {
-                StateUninitialized = 0,
-                StateRunning,
-                StateClosed
-            };
-
-            std::atomic<uint32_t> state;
-
-            bool worker_running;
-            std::thread *worker;
-
-        public:
-            TTLManager() : state{StateUninitialized}, worker_running{false}, worker{nullptr} {}
-
-            void run(std::shared_ptr<T> committer)
-            {
-                // Run only once and start a background thread to refresh lock ttl
-                uint32_t expected = StateUninitialized;
-                if (!state.compare_exchange_strong(expected, StateRunning, std::memory_order_acquire, std::memory_order_relaxed))
-                {
-                    return;
-                }
-
-                worker_running = true;
-                worker = new std::thread{&TTLManager::keepAlive, this, committer};
-            }
-
-            void close()
-            {
-                uint32_t expected = StateRunning;
-                state.compare_exchange_strong(expected, StateClosed, std::memory_order_acq_rel);
-                if (worker_running && worker->joinable())
-                {
-                    worker->join();
-                    worker_running = false;
-                    delete worker;
-                }
-            }
-
-            void keepAlive(std::shared_ptr<T> committer)
-            {
-                for (;;)
-                {
-                    if (state.load(std::memory_order_acquire) == StateClosed)
-                    {
-                        return;
-                    }
-                    std::this_thread::sleep_for(std::chrono::milliseconds(managedLockTTL / 2));
-
-                    // TODO: Checks maximum lifetime for the TTLManager
-                    Backoffer bo(pessimisticLockMaxBackoff);
-                    uint64_t now = committer->cluster->oracle->getLowResolutionTimestamp();
-                    uint64_t uptime = pd::extractPhysical(now) - pd::extractPhysical(committer->start_ts);
-                    uint64_t new_ttl = uptime + managedLockTTL;
-                    try
-                    {
-                        std::ignore = sendTxnHeartBeat(bo, committer->cluster, committer->primary_lock, committer->start_ts, new_ttl);
-                    }
-                    catch (...)
-                    {
-                        return;
-                    }
-                }
-            }
+        struct PreWriteResult {
+            uint64_t start_ts = 0;
+            std::string primary_lock;
         };
-
-        struct TwoPhaseCommitter : public std::enable_shared_from_this<TwoPhaseCommitter>
+        struct BCOSTwoPhaseCommitter : public std::enable_shared_from_this<BCOSTwoPhaseCommitter>
         {
         private:
             std::unordered_map<std::string, std::string> mutations;
@@ -131,20 +57,61 @@ namespace pingcap
             bool commited;
 
             // Only for test now
-            bool use_async_commit;
+            bool use_async_commit = false;
 
-            TTLManager<TwoPhaseCommitter> ttl_manager;
+            TTLManager<BCOSTwoPhaseCommitter> ttl_manager;
 
             Logger *log;
 
-            friend class TTLManager<TwoPhaseCommitter>;
-
-            friend class TestTwoPhaseCommitter;
+            friend class TTLManager<BCOSTwoPhaseCommitter>;
 
         public:
-            TwoPhaseCommitter(Txn *txn, bool _use_async_commit = false);
+            BCOSTwoPhaseCommitter(Cluster *_cluster, const std::string_view & _primary_lock, std::unordered_map<std::string, std::string> &&_mutations);
 
-            void execute();
+            void prewriteKeys(uint64_t _start_ts)
+            {
+                start_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch());
+                start_ts = _start_ts;
+                Backoffer prewrite_bo(prewriteMaxBackoff);
+                try
+                {
+                    prewriteKeys(prewrite_bo, keys);
+                }
+                catch (Exception &e)
+                {
+                    if (!commited)
+                    {
+                        // TODO: Rollback keys.
+                    }
+                    log->warning("write commit exception: " + e.displayText());
+                    throw;
+                }
+            }
+            PreWriteResult prewriteKeys()
+            {
+                // the primary_lock should be current_number so we can check block continuity
+                prewriteKeys(cluster->pd_client->getTS());
+                return PreWriteResult{start_ts, primary_lock};
+            }
+            void commitKeys()
+            {
+                try
+                {
+                    commit_ts = cluster->pd_client->getTS();
+                    Backoffer commit_bo(commitMaxBackoff);
+                    doActionOnKeys<ActionCommit>(commit_bo, keys);
+                    ttl_manager.close();
+                }
+                catch (Exception &e)
+                {
+                    if (!commited)
+                    {
+                        // TODO: Rollback keys.
+                    }
+                    log->warning("write commit exception: " + e.displayText());
+                    throw;
+                }
+            }
 
         private:
             enum Action
@@ -164,8 +131,6 @@ namespace pingcap
                 {
                 }
             };
-
-            void calculateMaxCommitTS();
 
             void prewriteKeys(Backoffer &bo, const std::vector<std::string> &keys) { doActionOnKeys<ActionPrewrite>(bo, keys); }
 

@@ -1,6 +1,7 @@
 set(kvClient_sources)
 
 list(APPEND kvClient_sources kv/2pc.cc)
+list(APPEND kvClient_sources kv/BCOS2pc.cc)
 list(APPEND kvClient_sources kv/Backoff.cc)
 list(APPEND kvClient_sources kv/Cluster.cc)
 list(APPEND kvClient_sources kv/LockResolver.cc)

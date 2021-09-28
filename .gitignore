@@ -34,6 +34,7 @@
 # build directory
 build
 cmake-build*
+third_party
 
 # IDE or editor files
 .idea

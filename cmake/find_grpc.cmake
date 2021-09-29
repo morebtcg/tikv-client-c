@@ -7,7 +7,7 @@ if (APPLE)
     #     set(OPENSSL_USE_STATIC_LIBS TRUE)
     # endif()
 endif()
-find_package (OpenSSL)
+find_package (OpenSSL REQUIRED)
 message (STATUS "Using ssl=${OPENSSL_FOUND}: ${OPENSSL_INCLUDE_DIR} : ${OPENSSL_LIBRARIES}")
 
 find_package(Protobuf REQUIRED)

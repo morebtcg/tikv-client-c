@@ -22,4 +22,6 @@ find_package(ZLIB REQUIRED)
 message(STATUS "Using ZLIB: ${ZLIB_INCLUDE_DIRS}, ${ZLIB_LIBRARIES}")
 
 find_package(gRPC CONFIG REQUIRED)
-message(STATUS "Using gRPC: ${gRPC_VERSION}")
+message(STATUS "Using gRPC: ${gRPC_VERSION} : ${gRPC_DIR}")
+
+message(STATUS "After init git submodule, Execute the below command to generate cpp files \nexport PATH=${GRPC_ROOT}:\$PATH && cd third_party/kvproto && bash scripts/generate_cpp.sh")

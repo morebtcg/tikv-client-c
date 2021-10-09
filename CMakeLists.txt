@@ -15,7 +15,7 @@ enable_testing()
 
 
 hunter_add_package(Protobuf)
-hunter_add_package(OpenSSL)
+# hunter_add_package(OpenSSL)
 hunter_add_package(PocoCpp)
 hunter_add_package(gRPC)
 # hunter_add_package(c-ares)

@@ -15,7 +15,7 @@ set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake/M
 enable_testing()
 
 hunter_add_package(Protobuf)
-hunter_add_package(OpenSSL)
+# hunter_add_package(OpenSSL)
 hunter_add_package(PocoCpp)
 hunter_add_package(gRPC)
 # hunter_add_package(c-ares)

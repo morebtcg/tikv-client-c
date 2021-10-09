@@ -90,6 +90,15 @@ namespace
             ASSERT_EQ(snap.Get("d"), "d");
             ASSERT_EQ(snap.Get("e"), "e");
             ASSERT_EQ(snap.Get("f"), "f");
+
+            // BatchGet
+            auto result2 = snap.BatchGet({"a", "b", "c", "d", "e", "fs"});
+            ASSERT_EQ(snap.Get("a"), "a1");
+            ASSERT_EQ(snap.Get("b"), "b1");
+            ASSERT_EQ(snap.Get("c"), "c1");
+            ASSERT_EQ(snap.Get("d"), "d");
+            ASSERT_EQ(snap.Get("e"), "e");
+            ASSERT_EQ(snap.Get("f"), "f");
         }
     }
 

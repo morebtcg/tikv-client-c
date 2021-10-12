@@ -12,6 +12,7 @@ namespace pingcap
         BCOSTwoPhaseCommitter::BCOSTwoPhaseCommitter(Cluster *_cluster, const std::string_view &_primary_lock, std::unordered_map<std::string, std::string> &&_mutations)
             : mutations(std::move(_mutations)), cluster(_cluster), log(&Logger::get("pingcap.tikv"))
         {
+            start_ts = cluster->pd_client->getTS();
             start_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch());
             keys.reserve(mutations.size());
             for (auto &item : mutations)
@@ -63,6 +64,7 @@ namespace pingcap
                 }
                 catch (Exception &e)
                 {
+                    std::cerr << "prewriteSingleBatch failed, " << e.what() << ":" << e.message() << std::endl;
                     // Region Error.
                     bo.backoff(boRegionMiss, e);
                     prewriteKeys(bo, batch.keys);
@@ -78,6 +80,7 @@ namespace pingcap
                         const auto &err = response->errors(i);
                         if (err.has_already_exist())
                         {
+                            std::cerr << "prewriteSingleBatch failed, errors: " << "key : " + Redact::keyToDebugString(err.already_exist().key()) + " has existed." << std::endl;
                             throw Exception("key : " + Redact::keyToDebugString(err.already_exist().key()) + " has existed.", LogicalError);
                         }
                         auto lock = extractLockFromKeyErr(err);
@@ -108,6 +111,35 @@ namespace pingcap
             }
         }
 
+        void BCOSTwoPhaseCommitter::rollbackSingleBatch(Backoffer &bo, const BatchKeys &batch)
+        {
+            auto req = std::make_shared<kvrpcpb::BatchRollbackRequest>();
+            for (const auto &key : batch.keys)
+            {
+                req->add_keys(key);
+            }
+            req->set_start_version(start_ts);
+
+            std::shared_ptr<kvrpcpb::BatchRollbackResponse> response;
+            RegionClient region_client(cluster, batch.region);
+            try
+            {
+                response = region_client.sendReqToRegion(bo, req);
+            }
+            catch (Exception &e)
+            { // Region Error.
+                std::cerr << "rollbackSingleBatch failed, " << e.what() << ":" << e.message() << std::endl;
+                bo.backoff(boRegionMiss, e);
+                rollbackKeys(bo, batch.keys);
+                return;
+            }
+            if (response->has_error())
+            {
+                std::cerr << "rollbackSingleBatch failed, errors: " << response->error().ShortDebugString() << std::endl;
+                throw Exception("meet errors: " + response->error().ShortDebugString(), LockError);
+            }
+        }
+
         void BCOSTwoPhaseCommitter::commitSingleBatch(Backoffer &bo, const BatchKeys &batch)
         {
             auto req = std::make_shared<kvrpcpb::CommitRequest>();
@@ -126,6 +158,7 @@ namespace pingcap
             }
             catch (Exception &e)
             {
+                std::cerr << "commitSingleBatch failed, " << e.what() << ":" << e.message() << std::endl;
                 bo.backoff(boRegionMiss, e);
                 commit_ts = cluster->pd_client->getTS();
                 commitKeys(bo, batch.keys);
@@ -133,6 +166,7 @@ namespace pingcap
             }
             if (response->has_error())
             {
+                std::cerr << "commitSingleBatch failed, errors: " << response->error().ShortDebugString() << std::endl;
                 throw Exception("meet errors: " + response->error().ShortDebugString(), LockError);
             }
 

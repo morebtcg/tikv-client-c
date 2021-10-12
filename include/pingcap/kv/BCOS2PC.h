@@ -25,7 +25,8 @@ namespace pingcap
 
         using BCOSTwoPhaseCommitterPtr = std::shared_ptr<BCOSTwoPhaseCommitter>;
 
-        struct PreWriteResult {
+        struct PreWriteResult
+        {
             uint64_t start_ts = 0;
             std::string primary_lock;
         };
@@ -66,7 +67,7 @@ namespace pingcap
             friend class TTLManager<BCOSTwoPhaseCommitter>;
 
         public:
-            BCOSTwoPhaseCommitter(Cluster *_cluster, const std::string_view & _primary_lock, std::unordered_map<std::string, std::string> &&_mutations);
+            BCOSTwoPhaseCommitter(Cluster *_cluster, const std::string_view &_primary_lock, std::unordered_map<std::string, std::string> &&_mutations);
 
             void prewriteKeys(uint64_t _start_ts)
             {
@@ -82,6 +83,8 @@ namespace pingcap
                     if (!commited)
                     {
                         // TODO: Rollback keys.
+                        std::cout << "prewrite failed, message:" << e.what() << ":" << e.message() << std::endl;
+                        rollbackKeys(prewrite_bo, keys);
                     }
                     log->warning("write commit exception: " + e.displayText());
                     throw;
@@ -93,12 +96,19 @@ namespace pingcap
                 prewriteKeys(cluster->pd_client->getTS());
                 return PreWriteResult{start_ts, primary_lock};
             }
+            void rollback()
+            {
+                Backoffer bo(prewriteMaxBackoff);
+                doActionOnKeys<ActionRollback>(bo, keys);
+                // stop ttl_manager
+                ttl_manager.close();
+            }
             void commitKeys()
             {
+                Backoffer commit_bo(commitMaxBackoff);
                 try
                 {
                     commit_ts = cluster->pd_client->getTS();
-                    Backoffer commit_bo(commitMaxBackoff);
                     doActionOnKeys<ActionCommit>(commit_bo, keys);
                     ttl_manager.close();
                 }
@@ -107,6 +117,8 @@ namespace pingcap
                     if (!commited)
                     {
                         // TODO: Rollback keys.
+                        rollbackKeys(commit_bo, keys);
+                        std::cerr << "commit failed, message:" << e.what() << ":" << e.message() << std::endl;
                     }
                     log->warning("write commit exception: " + e.displayText());
                     throw;
@@ -118,7 +130,8 @@ namespace pingcap
             {
                 ActionPrewrite = 0,
                 ActionCommit,
-                ActionCleanUp
+                ActionCleanUp,
+                ActionRollback,
             };
 
             struct BatchKeys
@@ -133,6 +146,7 @@ namespace pingcap
             };
 
             void prewriteKeys(Backoffer &bo, const std::vector<std::string> &keys) { doActionOnKeys<ActionPrewrite>(bo, keys); }
+            void rollbackKeys(Backoffer &bo, const std::vector<std::string> &keys) { doActionOnKeys<ActionRollback>(bo, keys); }
 
             void commitKeys(Backoffer &bo, const std::vector<std::string> &keys) { doActionOnKeys<ActionCommit>(bo, keys); }
 
@@ -197,6 +211,10 @@ namespace pingcap
                         region_txn_size[batch.region.id] = batch.keys.size();
                         prewriteSingleBatch(bo, batch);
                     }
+                    else if constexpr (action == ActionRollback)
+                    {
+                        rollbackSingleBatch(bo, batch);
+                    }
                     else if constexpr (action == ActionCommit)
                     {
                         commitSingleBatch(bo, batch);
@@ -205,6 +223,7 @@ namespace pingcap
             }
 
             void prewriteSingleBatch(Backoffer &bo, const BatchKeys &batch);
+            void rollbackSingleBatch(Backoffer &bo, const BatchKeys &batch);
 
             void commitSingleBatch(Backoffer &bo, const BatchKeys &batch);
         };

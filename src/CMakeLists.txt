@@ -15,6 +15,7 @@ list(APPEND kvClient_sources coprocessor/Client.cc)
 list(APPEND kvClient_sources RedactHelpers.cc)
 
 set(kvClient_INCLUDE_DIR ${kvClient_SOURCE_DIR}/include)
+set(KVPROTO_INCLUDE_DIR ${kvClient_SOURCE_DIR}/third_party/kvproto/cpp/)
 
 # Only enable fiu under test mode.
 if (ENABLE_TESTS)
@@ -22,7 +23,7 @@ if (ENABLE_TESTS)
 endif()
 
 add_library(kv_client ${kvClient_sources})
-target_include_directories(kv_client PUBLIC ${KVPROTO_INCLUDE_DIR} ${kvClient_INCLUDE_DIR} ${fiu_include_dirs})
+target_include_directories(kv_client PUBLIC $<BUILD_INTERFACE:${KVPROTO_INCLUDE_DIR}> $<BUILD_INTERFACE:${kvClient_INCLUDE_DIR}> $<BUILD_INTERFACE:${fiu_include_dirs}>)
 target_link_libraries(kv_client PUBLIC kvproto ${Poco_Foundation_LIBRARY} fiu gRPC::grpc++)
 
 if (ENABLE_TESTS)

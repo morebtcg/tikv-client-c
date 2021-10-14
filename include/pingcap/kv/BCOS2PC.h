@@ -1,6 +1,5 @@
 #pragma once
 
-#include <fiu.h>
 #include <pingcap/Exception.h>
 #include <pingcap/kv/2pc.h>
 #include <pingcap/kv/Backoff.h>

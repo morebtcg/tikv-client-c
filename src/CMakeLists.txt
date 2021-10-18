@@ -24,7 +24,7 @@ endif()
 
 add_library(kv_client ${kvClient_sources})
 target_include_directories(kv_client PUBLIC $<BUILD_INTERFACE:${KVPROTO_INCLUDE_DIR}> $<BUILD_INTERFACE:${kvClient_INCLUDE_DIR}> $<BUILD_INTERFACE:${fiu_include_dirs}>)
-target_link_libraries(kv_client PUBLIC kvproto ${Poco_Foundation_LIBRARY} fiu gRPC::grpc++)
+target_link_libraries(kv_client PUBLIC kvproto Poco::Foundation fiu gRPC::grpc++)
 
 if (ENABLE_TESTS)
     add_subdirectory (test)

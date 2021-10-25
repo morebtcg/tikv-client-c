@@ -23,8 +23,8 @@ if (ENABLE_TESTS)
 endif()
 
 add_library(kv_client ${kvClient_sources})
-target_include_directories(kv_client PUBLIC $<BUILD_INTERFACE:${KVPROTO_INCLUDE_DIR}> $<BUILD_INTERFACE:${kvClient_INCLUDE_DIR}> $<BUILD_INTERFACE:${fiu_include_dirs}>  ${Protobuf_INCLUDE_DIR} ${gRPC_INCLUDE_DIRS})
-target_link_libraries(kv_client PUBLIC kvproto Poco::Foundation fiu gRPC::grpc++ ${Protobuf_LIBRARY} ${gRPC_LIBRARIES})
+target_include_directories(kv_client PUBLIC $<BUILD_INTERFACE:${KVPROTO_INCLUDE_DIR}> $<BUILD_INTERFACE:${kvClient_INCLUDE_DIR}> $<BUILD_INTERFACE:${fiu_include_dirs}> ${Protobuf_INCLUDE_DIR} ${gRPC_INCLUDE_DIRS})
+target_link_libraries(kv_client PUBLIC kvproto Poco::Foundation fiu gRPC::grpc++ Boost::context ${Protobuf_LIBRARY} ${gRPC_LIBRARIES})
 
 if (ENABLE_TESTS)
     add_subdirectory (test)

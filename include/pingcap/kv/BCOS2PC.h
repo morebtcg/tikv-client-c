@@ -203,17 +203,21 @@ namespace pingcap
             template <Action action>
             void doActionOnBatches(Backoffer &bo, const std::vector<BatchKeys> &batches)
             {
+                if constexpr (action == ActionPrewrite)
+                {
+                    asyncPrewriteBatches(bo, batches);
+                }
                 for (const auto &batch : batches)
                 {
-                    if constexpr (action == ActionPrewrite)
-                    {
-                        region_txn_size[batch.region.id] = batch.keys.size();
-                        prewriteSingleBatch(bo, batch);
-                    }
-                    else if constexpr (action == ActionRollback)
+                    if constexpr (action == ActionRollback)
                     {
                         rollbackSingleBatch(bo, batch);
                     }
+                    // else if constexpr (action == ActionPrewrite)
+                    // {
+                    //     region_txn_size[batch.region.id] = batch.keys.size();
+                    //     prewriteSingleBatch(bo, batch);
+                    // }
                     else if constexpr (action == ActionCommit)
                     {
                         commitSingleBatch(bo, batch);
@@ -222,6 +226,8 @@ namespace pingcap
             }
 
             void prewriteSingleBatch(Backoffer &bo, const BatchKeys &batch);
+
+            void asyncPrewriteBatches(Backoffer &bo, const std::vector<BatchKeys> &batches);
             void rollbackSingleBatch(Backoffer &bo, const BatchKeys &batch);
 
             void commitSingleBatch(Backoffer &bo, const BatchKeys &batch);

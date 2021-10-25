@@ -35,7 +35,6 @@ using ConnArrayPtr = std::shared_ptr<ConnArray>;
 template <class T>
 class RpcCall
 {
-
     using Trait = RpcTypeTraits<T>;
     using S = typename Trait::ResultType;
 
@@ -69,9 +68,16 @@ public:
         }
     }
 
+    auto asyncCall(std::shared_ptr<KvConnClient> client, grpc::CompletionQueue *cq, int timeout)
+    {
+        m_context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(timeout));
+        return Trait::asyncRPCCall(&m_context, client, *req, cq);
+    }
+
     auto callStream(grpc::ClientContext * context, std::shared_ptr<KvConnClient> client) { return Trait::doRPCCall(context, client, *req); }
 
     auto callStreamAsync(grpc::ClientContext * context, std::shared_ptr<KvConnClient> client, grpc::CompletionQueue& cq, void* call) { return Trait::doAsyncRPCCall(context, client, *req, cq, call); }
+    grpc::ClientContext m_context;
 };
 
 template <typename T>
@@ -99,6 +105,13 @@ struct RpcClient
         ConnArrayPtr connArray = getConnArray(addr);
         auto connClient = connArray->get();
         rpc.call(connClient, timeout);
+    }
+    template <class T>
+    auto asyncSendRequest(std::string addr, RpcCall<T> & rpc, grpc::CompletionQueue *cq, int timeout)
+    {
+        ConnArrayPtr connArray = getConnArray(addr);
+        auto connClient = connArray->get();
+        return rpc.asyncCall(connClient, cq, timeout);
     }
 
     template <class T>

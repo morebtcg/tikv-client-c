@@ -27,6 +27,16 @@ struct RpcTypeTraits
         {                                                                                                                   \
             return client->stub->METHOD(context, req, res);                                                                 \
         }                                                                                                                   \
+        static std::unique_ptr< ::grpc::ClientAsyncResponseReader<ResultType>> asyncRPCCall(                                   \
+            grpc::ClientContext * context, std::shared_ptr<KvConnClient> client, const RequestType & req, ::grpc::CompletionQueue* cq) \
+        {                                                                                                                   \
+            return client->stub->Async##METHOD(context, req, cq);                                                                 \
+        }                                                                                                                  \
+        static std::unique_ptr< ::grpc::ClientAsyncResponseReader<ResultType>> prepareAsyncRPCCall(                                   \
+            grpc::ClientContext * context, std::shared_ptr<KvConnClient> client, const RequestType & req, ::grpc::CompletionQueue* cq) \
+        {                                                                                                                   \
+            return client->stub->PrepareAsync##METHOD(context, req, cq);                                                                 \
+        }                                                                                                                  \
     };
 
 PINGCAP_DEFINE_TRAITS(kvrpcpb, SplitRegion, SplitRegion)

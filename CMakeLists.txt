@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION 3.14)
 
+# set(HUNTER_CONFIGURATION_TYPES Debug CACHE STRING "Build type of Hunter packages")
 include(cmake/HunterGate.cmake)
 HunterGate(
-    URL "https://github.com/FISCO-BCOS/hunter/archive/9ea365415828102627dcc933295e25e8feff7d93.tar.gz"
-    SHA1 "b40d19ddd9939f557b70c69e45f8744ff17583ba"
+    URL "https://github.com/FISCO-BCOS/hunter/archive/b55a347258b0fc3eda47f4ccd3e2c0db595b4957.tar.gz"
+    SHA1 "9331d1e70cee5498bd59ada13aa68278cbb9a2d6"
     FILEPATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/config.cmake
 )
 
@@ -19,6 +20,8 @@ hunter_add_package(Protobuf)
 hunter_add_package(PocoCpp)
 hunter_add_package(gRPC)
 # hunter_add_package(c-ares)
+hunter_add_package(Boost COMPONENTS all)
+find_package(Boost CONFIG QUIET REQUIRED context)
 
 if (NOT gRPC_FOUND)
     include (cmake/find_grpc.cmake)

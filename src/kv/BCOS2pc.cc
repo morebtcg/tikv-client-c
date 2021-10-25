@@ -4,6 +4,8 @@
 #include <pingcap/kv/Txn.h>
 #include <pingcap/pd/Oracle.h>
 
+using namespace std;
+
 namespace pingcap
 {
     namespace kv
@@ -80,7 +82,8 @@ namespace pingcap
                         const auto &err = response->errors(i);
                         if (err.has_already_exist())
                         {
-                            std::cerr << "prewriteSingleBatch failed, errors: " << "key : " + Redact::keyToDebugString(err.already_exist().key()) + " has existed." << std::endl;
+                            std::cerr << "prewriteSingleBatch failed, errors: "
+                                      << "key : " + Redact::keyToDebugString(err.already_exist().key()) + " has existed." << std::endl;
                             throw Exception("key : " + Redact::keyToDebugString(err.already_exist().key()) + " has existed.", LogicalError);
                         }
                         auto lock = extractLockFromKeyErr(err);
@@ -108,6 +111,116 @@ namespace pingcap
                 }
 
                 return;
+            }
+        }
+
+        void BCOSTwoPhaseCommitter::asyncPrewriteBatches(Backoffer &bo, const std::vector<BatchKeys> &batches)
+        {
+            // TODO: create request
+            using coro_t = boost::coroutines2::coroutine<size_t>;
+            std::vector<shared_ptr<kvrpcpb::PrewriteRequest>> requests(batches.size(), nullptr);
+            std::vector<shared_ptr<kvrpcpb::PrewriteResponse>> responses(batches.size(), nullptr);
+            std::vector<coro_t::push_type> coroutines;
+            grpc::CompletionQueue cq;
+            for (size_t i = 0; i < batches.size(); ++i)
+            {
+                auto &batch = batches[i];
+                region_txn_size[batch.region.id] = batch.keys.size();
+                uint64_t batch_txn_size = region_txn_size[batch.region.id];
+                requests[i] = std::make_shared<kvrpcpb::PrewriteRequest>();
+                auto &req = requests[i];
+
+                for (const std::string &key : batch.keys)
+                {
+                    auto *mut = req->add_mutations();
+                    mut->set_key(key);
+                    mut->set_value(mutations[key]);
+                }
+                req->set_primary_lock(primary_lock);
+                req->set_start_version(start_ts);
+                req->set_lock_ttl(lock_ttl);
+                req->set_txn_size(batch_txn_size);
+                req->set_max_commit_ts(max_commit_ts);
+
+                // TODO: set right min_commit_ts for pessimistic lock
+                req->set_min_commit_ts(start_ts + 1);
+                fiu_do_on("invalid_max_commit_ts", { req->set_max_commit_ts(min_commit_ts - 1); });
+
+                coroutines.emplace_back([&, index = i](coro_t::pull_type &in)
+                                        {
+                                            for (;;)
+                                            {
+                                                try
+                                                {
+                                                    RegionClient region_client(cluster, batches[index].region);
+                                                    responses[index] = region_client.asyncSendReqToRegion(bo, requests[index], &cq, in);
+                                                }
+                                                catch (Exception &e)
+                                                {
+                                                    std::cerr << "prewriteSingleBatch failed, " << e.what() << ":" << e.message() << std::endl;
+                                                    // Region Error.
+                                                    bo.backoff(boRegionMiss, e);
+                                                    prewriteKeys(bo, batches[index].keys);
+                                                }
+                                                in();
+                                            }
+                                        });
+                coroutines[i](i);
+            }
+            for (size_t i = 0; i < batches.size(); ++i)
+            { // after finish
+                size_t *id = nullptr;
+                bool ok = false;
+                cq.Next((void **)&id, &ok);
+                coroutines[*id](*id);
+            }
+            for (size_t i = 0; i < batches.size(); ++i)
+            {
+                auto response = responses[i];
+                if (response->errors_size() != 0)
+                {
+                    std::vector<LockPtr> locks;
+                    int size = response->errors_size();
+                    for (int i = 0; i < size; i++)
+                    {
+                        const auto &err = response->errors(i);
+                        if (err.has_already_exist())
+                        {
+                            std::cerr << "prewriteSingleBatch failed, errors: "
+                                      << "key : " + Redact::keyToDebugString(err.already_exist().key()) + " has existed." << std::endl;
+                            throw Exception("key : " + Redact::keyToDebugString(err.already_exist().key()) + " has existed.", LogicalError);
+                        }
+                        auto lock = extractLockFromKeyErr(err);
+                        locks.push_back(lock);
+                    }
+                    auto ms_before_expired = cluster->lock_resolver->resolveLocksForWrite(bo, start_ts, locks);
+                    if (ms_before_expired > 0)
+                    {
+                        bo.backoffWithMaxSleep(
+                            boTxnLock, ms_before_expired, Exception("2PC prewrite locked: " + std::to_string(locks.size()), LockError));
+                    }
+                    // retry
+                    coroutines[i](i);
+                    size_t *id = nullptr;
+                    bool ok = false;
+                    cq.Next((void **)&id, &ok);
+                    assert(*id == i);
+                    coroutines[i](i);
+                    --i;
+                    continue;
+                }
+                else
+                {
+                    if (batches[i].keys[0] == primary_lock)
+                    {
+                        // After writing the primary key, if the size of the transaction is large than 32M,
+                        // start the ttlManager. The ttlManager will be closed in tikvTxn.Commit().
+                        if (txn_size > ttlManagerRunThreshold)
+                        {
+                            ttl_manager.run(shared_from_this());
+                        }
+                    }
+                }
             }
         }
 

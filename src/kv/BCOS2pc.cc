@@ -10,7 +10,15 @@ namespace pingcap
 {
     namespace kv
     {
-
+        vector<string> convert(const vector<string_view> & o)
+        {
+            vector<string> ret;
+            for (auto &v : o)
+            {
+                ret.emplace_back(v.data(), v.size());
+            }
+            return std::move(ret);
+        }
         BCOSTwoPhaseCommitter::BCOSTwoPhaseCommitter(Cluster *_cluster, const std::string_view &_primary_lock, std::unordered_map<std::string, std::string> &&_mutations)
             : mutations(std::move(_mutations)), cluster(_cluster), log(&Logger::get("pingcap.tikv"))
         {
@@ -32,6 +40,7 @@ namespace pingcap
             {
                 lock_ttl = managedLockTTL;
             }
+            m_groups = prepareGroups(keys);
         }
 
         void BCOSTwoPhaseCommitter::prewriteSingleBatch(Backoffer &bo, const BatchKeys &batch)
@@ -41,11 +50,13 @@ namespace pingcap
             for (;;)
             {
                 auto req = std::make_shared<kvrpcpb::PrewriteRequest>();
-                for (const std::string &key : batch.keys)
+                for (const auto &key : batch.keys)
                 {
+
                     auto *mut = req->add_mutations();
-                    mut->set_key(key);
-                    mut->set_value(mutations[key]);
+                    std::string skey(key);
+                    mut->set_value(mutations[skey]);
+                    mut->set_key(std::move(skey));
                 }
                 req->set_primary_lock(primary_lock);
                 req->set_start_version(start_ts);
@@ -69,7 +80,7 @@ namespace pingcap
                     std::cerr << "prewriteSingleBatch failed, " << e.what() << ":" << e.message() << std::endl;
                     // Region Error.
                     bo.backoff(boRegionMiss, e);
-                    prewriteKeys(bo, batch.keys);
+                    prewriteKeys(bo, convert(batch.keys));
                     return;
                 }
 
@@ -130,11 +141,12 @@ namespace pingcap
                 requests[i] = std::make_shared<kvrpcpb::PrewriteRequest>();
                 auto &req = requests[i];
 
-                for (const std::string &key : batch.keys)
+                for (const auto &key : batch.keys)
                 {
                     auto *mut = req->add_mutations();
-                    mut->set_key(key);
-                    mut->set_value(mutations[key]);
+                    auto skey = std::string(key);
+                    mut->set_value(mutations[skey]);
+                    mut->set_key(std::move(skey));
                 }
                 req->set_primary_lock(primary_lock);
                 req->set_start_version(start_ts);
@@ -160,7 +172,7 @@ namespace pingcap
                                                     std::cerr << "prewriteSingleBatch failed, " << e.what() << ":" << e.message() << std::endl;
                                                     // Region Error.
                                                     bo.backoff(boRegionMiss, e);
-                                                    prewriteKeys(bo, batches[index].keys);
+                                                    prewriteKeys(bo, convert(batches[index].keys));
                                                 }
                                                 in();
                                             }
@@ -229,7 +241,7 @@ namespace pingcap
             auto req = std::make_shared<kvrpcpb::BatchRollbackRequest>();
             for (const auto &key : batch.keys)
             {
-                req->add_keys(key);
+                req->add_keys(std::string(key));
             }
             req->set_start_version(start_ts);
 
@@ -243,7 +255,7 @@ namespace pingcap
             { // Region Error.
                 std::cerr << "rollbackSingleBatch failed, " << e.what() << ":" << e.message() << std::endl;
                 bo.backoff(boRegionMiss, e);
-                rollbackKeys(bo, batch.keys);
+                rollbackKeys(bo, convert(batch.keys));
                 return;
             }
             if (response->has_error())
@@ -258,7 +270,7 @@ namespace pingcap
             auto req = std::make_shared<kvrpcpb::CommitRequest>();
             for (const auto &key : batch.keys)
             {
-                req->add_keys(key);
+                req->add_keys(std::string(key));
             }
             req->set_start_version(start_ts);
             req->set_commit_version(commit_ts);
@@ -274,7 +286,7 @@ namespace pingcap
                 std::cerr << "commitSingleBatch failed, " << e.what() << ":" << e.message() << std::endl;
                 bo.backoff(boRegionMiss, e);
                 commit_ts = cluster->pd_client->getTS();
-                commitKeys(bo, batch.keys);
+                commitKeys(bo, convert(batch.keys));
                 return;
             }
             if (response->has_error())

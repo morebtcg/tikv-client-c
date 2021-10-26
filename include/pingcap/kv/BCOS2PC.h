@@ -33,7 +33,7 @@ namespace pingcap
         {
         private:
             std::unordered_map<std::string, std::string> mutations;
-
+            // FIXME: std::vector<std::string_view> keys;
             std::vector<std::string> keys;
             uint64_t start_ts = 0;
 
@@ -64,6 +64,19 @@ namespace pingcap
             Logger *log;
 
             friend class TTLManager<BCOSTwoPhaseCommitter>;
+            struct BatchKeys
+            {
+                RegionVerID region;
+                std::vector<std::string_view> keys;
+                bool is_primary;
+                BatchKeys(const RegionVerID &region_, std::vector<std::string_view> keys_, bool is_primary_ = false)
+                    : region(region_), keys(std::move(keys_)), is_primary(is_primary_)
+                {
+                }
+            };
+            using GroupsType = std::unordered_map<RegionVerID, std::vector<std::string>>;
+            using BatchesType = std::vector<BatchKeys>;
+            std::shared_ptr<GroupsType> m_groups = nullptr;
 
         public:
             BCOSTwoPhaseCommitter(Cluster *_cluster, const std::string_view &_primary_lock, std::unordered_map<std::string, std::string> &&_mutations);
@@ -133,16 +146,47 @@ namespace pingcap
                 ActionRollback,
             };
 
-            struct BatchKeys
+            std::shared_ptr<GroupsType> prepareGroups(const std::vector<std::string> &cur_keys)
             {
-                RegionVerID region;
-                std::vector<std::string> keys;
-                bool is_primary;
-                BatchKeys(const RegionVerID &region_, std::vector<std::string> keys_, bool is_primary_ = false)
-                    : region(region_), keys(std::move(keys_)), is_primary(is_primary_)
+                Backoffer bo(prewriteMaxBackoff);
+                auto [tempGroups, first_region] = cluster->region_cache->groupKeysByRegion(bo, cur_keys);
+                std::ignore = first_region;
+                return std::make_shared<GroupsType>(std::move(tempGroups));
+            }
+            template <Action action>
+            std::shared_ptr<BatchesType> prepareBatches(const std::shared_ptr<GroupsType> &cur_groups)
+            {
+                auto batches = std::make_shared<BatchesType>();
+
+                uint64_t primary_idx = std::numeric_limits<uint64_t>::max();
+                for (auto &group : *cur_groups)
                 {
+                    uint32_t end = 0;
+                    for (uint32_t start = 0; start < group.second.size(); start = end)
+                    {
+                        uint64_t size = 0;
+                        std::vector<std::string_view> sub_keys;
+                        for (end = start; end < group.second.size() && size < txnCommitBatchSize; end++)
+                        {
+                            auto &key = group.second[end];
+                            size += key.size();
+                            if constexpr (action == ActionPrewrite)
+                                size += mutations[key].size();
+
+                            if (key == primary_lock)
+                                primary_idx = batches->size();
+                            sub_keys.push_back(key);
+                        }
+                        batches->emplace_back(BatchKeys(group.first, sub_keys));
+                    }
                 }
-            };
+                if (primary_idx != std::numeric_limits<uint64_t>::max() && primary_idx != 0)
+                {
+                    std::swap(batches->at(0), batches->at(primary_idx));
+                    batches->at(0).is_primary = true;
+                }
+                return batches;
+            }
 
             void prewriteKeys(Backoffer &bo, const std::vector<std::string> &keys) { doActionOnKeys<ActionPrewrite>(bo, keys); }
             void rollbackKeys(Backoffer &bo, const std::vector<std::string> &keys) { doActionOnKeys<ActionRollback>(bo, keys); }
@@ -152,38 +196,12 @@ namespace pingcap
             template <Action action>
             void doActionOnKeys(Backoffer &bo, const std::vector<std::string> &cur_keys)
             {
-                auto [groups, first_region] = cluster->region_cache->groupKeysByRegion(bo, cur_keys);
-                std::ignore = first_region;
-
-                // TODO: presplit region when needed
-                std::vector<BatchKeys> batches;
-                uint64_t primary_idx = std::numeric_limits<uint64_t>::max();
-                for (auto &group : groups)
+                auto groups = m_groups;
+                if (cur_keys.size() != keys.size())
                 {
-                    uint32_t end = 0;
-                    for (uint32_t start = 0; start < group.second.size(); start = end)
-                    {
-                        uint64_t size = 0;
-                        std::vector<std::string> sub_keys;
-                        for (end = start; end < group.second.size() && size < txnCommitBatchSize; end++)
-                        {
-                            auto &key = group.second[end];
-                            size += key.size();
-                            if constexpr (action == ActionPrewrite)
-                                size += mutations[key].size();
-
-                            if (key == primary_lock)
-                                primary_idx = batches.size();
-                            sub_keys.push_back(key);
-                        }
-                        batches.emplace_back(BatchKeys(group.first, sub_keys));
-                    }
+                    groups = prepareGroups(cur_keys);
                 }
-                if (primary_idx != std::numeric_limits<uint64_t>::max() && primary_idx != 0)
-                {
-                    std::swap(batches[0], batches[primary_idx]);
-                    batches[0].is_primary = true;
-                }
+                auto batches = prepareBatches<action>(groups);
 
                 if constexpr (action == ActionCommit || action == ActionCleanUp)
                 {
@@ -191,12 +209,12 @@ namespace pingcap
                     {
                         fiu_do_on("all commit fail", return );
                     }
-                    doActionOnBatches<action>(bo, std::vector<BatchKeys>(batches.begin(), batches.begin() + 1));
-                    batches = std::vector<BatchKeys>(batches.begin() + 1, batches.end());
+                    doActionOnBatches<action>(bo, std::vector<BatchKeys>(batches->begin(), batches->begin() + 1));
+                    batches = std::make_shared<BatchesType>(batches->begin() + 1, batches->end());
                 }
                 if (action != ActionCommit || !fiu_fail("rest commit fail"))
                 {
-                    doActionOnBatches<action>(bo, batches);
+                    doActionOnBatches<action>(bo, *batches);
                 }
             }
 

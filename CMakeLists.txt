@@ -21,7 +21,7 @@ hunter_add_package(PocoCpp)
 hunter_add_package(gRPC)
 # hunter_add_package(c-ares)
 hunter_add_package(Boost COMPONENTS all)
-find_package(Boost CONFIG QUIET REQUIRED context)
+find_package(Boost CONFIG QUIET REQUIRED thread context)
 
 if (NOT Protobuf_INCLUDE_DIR)
     include (cmake/find_protobuf.cmake)

@@ -56,6 +56,14 @@ namespace pingcap
                     auto *mut = req->add_mutations();
                     std::string skey(key);
                     mut->set_value(mutations[skey]);
+                    if(mutations[skey].empty())
+                    {
+                        mut->set_op(kvrpcpb::Op::Del);
+                    }
+                    else
+                    {
+                        mut->set_value(mutations[skey]);
+                    }
                     mut->set_key(std::move(skey));
                 }
                 req->set_primary_lock(primary_lock);
@@ -145,7 +153,14 @@ namespace pingcap
                 {
                     auto *mut = req->add_mutations();
                     auto skey = std::string(key);
-                    mut->set_value(mutations[skey]);
+                    if(mutations[skey].empty())
+                    {
+                        mut->set_op(kvrpcpb::Op::Del);
+                    }
+                    else
+                    {
+                        mut->set_value(mutations[skey]);
+                    }
                     mut->set_key(std::move(skey));
                 }
                 req->set_primary_lock(primary_lock);

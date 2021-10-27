@@ -68,7 +68,8 @@ void Scanner::getData(Backoffer & bo)
         request->set_end_key(req_end_key);
         request->set_limit(batch);
         request->set_version(snap.version);
-        request->set_key_only(false);
+        // FISCO-BCOS only need keys
+        request->set_key_only(true);
 
         auto context = request->mutable_context();
         context->set_priority(::kvrpcpb::Normal);

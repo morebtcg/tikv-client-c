@@ -131,7 +131,14 @@ void TwoPhaseCommitter::prewriteSingleBatch(Backoffer & bo, const BatchKeys & ba
         {
             auto * mut = req->add_mutations();
             mut->set_key(key);
-            mut->set_value(mutations[key]);
+            if(mutations[key].empty())
+            {
+                mut->set_op(kvrpcpb::Op::Del);
+            }
+            else
+            {
+                mut->set_value(mutations[key]);
+            }
         }
         req->set_primary_lock(primary_lock);
         req->set_start_version(start_ts);

@@ -4,6 +4,7 @@
 #include <pingcap/kv/Txn.h>
 #include <pingcap/kv/BCOS2PC.h>
 #include <iostream>
+#include <chrono>
 
 #include "../test_helper.h"
 
@@ -248,4 +249,100 @@ namespace
         }
     }
 
+    TEST_F(TestWith2PCRealTiKV, performance)
+    {
+        // Prewrite
+        {
+            clean();
+            // scheduler prewrite
+            std::string kPrefix("kkkey======================");
+            std::string vPrefix("vkkey======================");
+            std::unordered_map<std::string, std::string> mutations;
+            size_t total = 50000;
+            for (size_t i = 0; i < total; ++i)
+            {
+                auto key = kPrefix + std::to_string(i);
+                mutations[key] = vPrefix + std::to_string(i);
+            }
+            mutations["a"] = "a1";
+            mutations["b"] = "b1";
+            mutations["c"] = "c1";
+
+            BCOSTwoPhaseCommitter committer{test_cluster.get(), "a", std::move(mutations)};
+            auto result = committer.prewriteKeys();
+            auto primary_key = result.primary_lock;
+            ASSERT_EQ(primary_key, "a");
+            auto start_ts = result.start_ts;
+            ASSERT_NE(start_ts, 0);
+
+            // executor prewrite
+            std::unordered_map<std::string, std::string> mutations2;
+            mutations2["d"] = "d";
+            mutations2["e"] = "e";
+            mutations2["f"] = "f";
+            BCOSTwoPhaseCommitter committer2(test_cluster.get(), "a", std::move(mutations2));
+            // std::this_thread::sleep_for(std::chrono::seconds(20));
+            committer2.prewriteKeys(start_ts);
+
+            // scheduler commit
+            committer.commitKeys();
+
+            // std::this_thread::sleep_for(std::chrono::seconds(2));
+            // query and check
+            Snapshot snap(test_cluster.get());
+            ASSERT_EQ(snap.Get("a"), "a1");
+            ASSERT_EQ(snap.Get("b"), "b1");
+            ASSERT_EQ(snap.Get("c"), "c1");
+            ASSERT_EQ(snap.Get("d"), "d");
+            ASSERT_EQ(snap.Get("e"), "e");
+            ASSERT_EQ(snap.Get("f"), "f");
+
+            // BatchGet
+            auto result2 = snap.BatchGet({"a", "b", "c", "d", "e", "f"});
+            ASSERT_EQ(result2["a"], "a1");
+            ASSERT_EQ(result2["b"], "b1");
+            ASSERT_EQ(result2["c"], "c1");
+            ASSERT_EQ(result2["d"], "d");
+            ASSERT_EQ(result2["e"], "e");
+            ASSERT_EQ(result2["f"], "f");
+            auto start = std::chrono::system_clock::now();
+            auto scanner = snap.Scan(kPrefix, "");
+            size_t count = 0;
+            for (; scanner.valid && scanner.key().rfind(kPrefix, 0) == 0; scanner.next())
+            {
+                ++count;
+            }
+            auto end = std::chrono::system_clock::now();
+            std::cout << "scanner(ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << std::endl;
+            ASSERT_EQ(count, total);
+
+            // delete all
+            std::unordered_map<std::string, std::string> mutations3;
+            for (size_t i = 0; i < total; ++i)
+            {
+                auto key = kPrefix + std::to_string(i);
+                mutations3[key] = "";
+            }
+            mutations3["a"] = "";
+            mutations3["b"] = "";
+            mutations3["c"] = "";
+
+            BCOSTwoPhaseCommitter committer3{test_cluster.get(), "a", std::move(mutations3)};
+            result = committer3.prewriteKeys();
+            primary_key = result.primary_lock;
+            ASSERT_EQ(primary_key, "a");
+            start_ts = result.start_ts;
+            ASSERT_NE(start_ts, 0);
+            committer3.commitKeys();
+
+            Snapshot snap3(test_cluster.get());
+            auto scanner3 = snap3.Scan(kPrefix, "");
+            count = 0;
+            for (; scanner.valid && scanner.key().rfind(kPrefix, 0) == 0; scanner.next())
+            {
+                ++count;
+            }
+            ASSERT_EQ(count, 0);
+        }
+    }
 } // namespace

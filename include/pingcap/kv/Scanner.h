@@ -75,7 +75,7 @@ struct Scanner
     }
 
 private:
-    void resolveCurrentLock(Backoffer & bo, kvrpcpb::KvPair &);
+    bool resolveCurrentLock(Backoffer & bo, kvrpcpb::KvPair &);
     void getData(Backoffer & bo);
 };
 

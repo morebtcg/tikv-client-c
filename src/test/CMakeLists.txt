@@ -1,14 +1,10 @@
 list (APPEND test_includes ${kvClient_INCLUDE_DIR} ${fiu_include_dirs})
 
 list(APPEND test_libs
-    kvproto
     kv_client
-    ${Protobuf_LIBRARY}
-    ${gRPC_LIBRARIES}
-    ${Poco_Net_LIBRARY}
-    ${Poco_JSON_LIBRARY}
+    Poco::Net Poco::JSON Poco::Util
     gtest_main
-    fiu)
+    )
 
 add_executable(kv_client_ut io_or_region_error_get_test.cc region_split_test.cc lock_resolve_test.cc coprocessor_test.cc)
 target_include_directories(kv_client_ut PUBLIC ${test_includes})

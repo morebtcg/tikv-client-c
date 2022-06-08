@@ -27,5 +27,6 @@ target_include_directories(kv_client PUBLIC $<BUILD_INTERFACE:${KVPROTO_INCLUDE_
 target_link_libraries(kv_client PUBLIC kvproto Poco::Foundation Poco::XML fiu Boost::thread Boost::context gRPC::grpc gRPC::grpc++ ${Protobuf_LIBRARY} ${OPENSSL_LIBRARIES})
 
 if (ENABLE_TESTS)
+    set(BUILD_GMOCK OFF)
     add_subdirectory (test)
 endif()

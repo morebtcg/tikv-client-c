@@ -75,8 +75,8 @@ void BCOSTwoPhaseCommitter::prewriteSingleBatch(Backoffer &bo,
     try {
       response = region_client.sendReqToRegion(bo, req);
     } catch (Exception &e) {
-      std::cerr << "prewriteSingleBatch failed, " << e.what() << ":"
-                << e.message() << std::endl;
+      log->warning("prewriteSingleBatch failed, " + std::string(e.what()) +
+                   ":" + e.message());
       // Region Error.
       bo.backoff(boRegionMiss, e);
       prewriteKeys(bo, convert(batch.keys));
@@ -89,11 +89,9 @@ void BCOSTwoPhaseCommitter::prewriteSingleBatch(Backoffer &bo,
       for (int i = 0; i < size; i++) {
         const auto &err = response->errors(i);
         if (err.has_already_exist()) {
-          std::cerr << "prewriteSingleBatch failed, errors: "
-                    << "key : " +
-                           Redact::keyToDebugString(err.already_exist().key()) +
-                           " has existed."
-                    << std::endl;
+          log->warning("prewriteSingleBatch failed, errors: key : " +
+                       Redact::keyToDebugString(err.already_exist().key()) +
+                       " has existed.");
           throw Exception(
               "key : " + Redact::keyToDebugString(err.already_exist().key()) +
                   " has existed.",
@@ -165,20 +163,20 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
               { req->set_max_commit_ts(min_commit_ts - 1); });
 
     coroutines.emplace_back([&, index = i](coro_t::pull_type &in) {
-      for (;;) {
-        try {
-          RegionClient region_client(cluster, batches[index].region);
-          responses[index] =
-              region_client.asyncSendReqToRegion(bo, requests[index], &cq, in);
-        } catch (Exception &e) {
-          std::cerr << "prewriteSingleBatch failed, " << e.what() << ":"
-                    << e.message() << std::endl;
-          // Region Error.
-          bo.backoff(boRegionMiss, e);
-          prewriteKeys(bo, convert(batches[index].keys));
-        }
-        in();
+      //   for (;;) {
+      try {
+        RegionClient region_client(cluster, batches[index].region);
+        responses[index] =
+            region_client.asyncSendReqToRegion(bo, requests[index], &cq, in);
+      } catch (Exception &e) {
+        log->warning("prewriteSingleBatch failed, " + std::string(e.what()) +
+                     ":" + e.message());
+        // Region Error.
+        bo.backoff(boRegionMiss, e);
+        prewriteKeys(bo, convert(batches[index].keys));
       }
+      in();
+      //   }
     });
     coroutines[i](i);
   }
@@ -187,20 +185,25 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
     bool ok = false;
     cq.Next((void **)&id, &ok);
     coroutines[*id](*id);
+    if (!ok) { // retry
+      --i;
+    }
   }
   for (size_t i = 0; i < batches.size(); ++i) {
     auto response = responses[i];
+    // if (!response) {
+    //   log->warning("prewriteSingleBatch skip empty response");
+    //   continue;
+    // }
     if (response->errors_size() != 0) {
       std::vector<LockPtr> locks;
       int size = response->errors_size();
       for (int i = 0; i < size; i++) {
         const auto &err = response->errors(i);
         if (err.has_already_exist()) {
-          std::cerr << "prewriteSingleBatch failed, errors: "
-                    << "key : " +
-                           Redact::keyToDebugString(err.already_exist().key()) +
-                           " has existed."
-                    << std::endl;
+          log->warning("prewriteSingleBatch failed, errors: key : " +
+                       Redact::keyToDebugString(err.already_exist().key()) +
+                       " has existed.");
           throw Exception(
               "key : " + Redact::keyToDebugString(err.already_exist().key()) +
                   " has existed.",
@@ -252,15 +255,15 @@ void BCOSTwoPhaseCommitter::rollbackSingleBatch(Backoffer &bo,
   try {
     response = region_client.sendReqToRegion(bo, req);
   } catch (Exception &e) { // Region Error.
-    std::cerr << "rollbackSingleBatch failed, " << e.what() << ":"
-              << e.message() << std::endl;
+    log->warning("rollbackSingleBatch failed, " + std::string(e.what()) + ":" +
+                 e.message());
     bo.backoff(boRegionMiss, e);
     rollbackKeys(bo, convert(batch.keys));
     return;
   }
   if (response->has_error()) {
-    std::cerr << "rollbackSingleBatch failed, errors: "
-              << response->error().ShortDebugString() << std::endl;
+    log->warning("rollbackSingleBatch failed, errors: " +
+                 response->error().ShortDebugString());
     throw Exception("meet errors: " + response->error().ShortDebugString(),
                     LockError);
   }
@@ -280,16 +283,16 @@ void BCOSTwoPhaseCommitter::commitSingleBatch(Backoffer &bo,
   try {
     response = region_client.sendReqToRegion(bo, req);
   } catch (Exception &e) {
-    std::cerr << "commitSingleBatch failed, " << e.what() << ":" << e.message()
-              << std::endl;
+    log->warning("commitSingleBatch failed, " + std::string(e.what()) + ":" +
+                 e.message());
     bo.backoff(boRegionMiss, e);
     commit_ts = cluster->pd_client->getTS();
     commitKeys(bo, convert(batch.keys));
     return;
   }
   if (response->has_error()) {
-    std::cerr << "commitSingleBatch failed, errors: "
-              << response->error().ShortDebugString() << std::endl;
+    log->warning("commitSingleBatch failed, errors: " +
+                 response->error().ShortDebugString());
     throw Exception("meet errors: " + response->error().ShortDebugString(),
                     LockError);
   }

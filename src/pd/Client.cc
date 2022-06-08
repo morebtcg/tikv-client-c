@@ -32,7 +32,7 @@ inline std::vector<std::string> addrsToUrls(const std::vector<std::string> & add
 }
 
 Client::Client(const std::vector<std::string> & addrs, const ClusterConfig & config_)
-    : max_init_cluster_retries(100),
+    : max_init_cluster_retries(50),
       pd_timeout(3),
       loop_interval(100),
       update_leader_interval(60),

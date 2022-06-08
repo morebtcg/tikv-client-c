@@ -15,9 +15,10 @@ struct Snapshot
     Cluster * cluster;
     const int64_t version;
     MinCommitTSPushed min_commit_ts_pushed;
+    Logger *log;
 
     Snapshot(Cluster * cluster_, uint64_t version_) : cluster(cluster_), version(version_) {}
-    Snapshot(Cluster * cluster_) : cluster(cluster_), version(cluster_->pd_client->getTS()) {}
+    Snapshot(Cluster * cluster_) : cluster(cluster_), version(cluster_->pd_client->getTS()), log(&Logger::get("pingcap.tikv")) {}
 
     std::map<std::string,std::string> BatchGet(const std::vector<std::string> & keys);
     std::string Get(const std::string & key);

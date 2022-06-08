@@ -43,6 +43,8 @@ std::string Snapshot::Get(Backoffer & bo, const std::string & key)
         }
         catch (Exception & e)
         {
+            log->warning("Snapshot Get failed, " + std::string(e.what()) + ":" +
+                 e.message());
             bo.backoff(boRegionMiss, e);
             continue;
         }
@@ -101,6 +103,8 @@ std::map<std::string,std::string> Snapshot::BatchGet(const std::vector<std::stri
             }
             catch (Exception & e)
             {
+                log->warning("Snapshot BatchGet failed, " + std::string(e.what()) + ":" +
+                 e.message());
                 bo.backoff(boRegionMiss, e);
                 continue;
             }

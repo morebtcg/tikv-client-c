@@ -17,7 +17,7 @@ namespace pingcap
 {
     namespace kv
     {
-        constexpr uint32_t txnCommitBatchSize = 16 * 1024;
+        constexpr uint32_t txnCommitBatchSize = 32 * 1024;
         constexpr uint64_t managedLockTTL = 20000; // 20s
         constexpr uint64_t bytesPerMiB = 1024 * 1024;
         constexpr uint64_t ttlManagerRunThreshold = 32 * 1024 * 1024;

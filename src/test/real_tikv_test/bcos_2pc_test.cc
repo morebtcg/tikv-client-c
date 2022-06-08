@@ -255,13 +255,13 @@ namespace
         {
             clean();
             // scheduler prewrite
-            std::string kPrefix("kkkey======================");
-            std::string vPrefix("vkkey======================");
+            std::string kPrefix("kkkey===============================");
+            std::string vPrefix("vkkey===============================");
             std::unordered_map<std::string, std::string> mutations;
-            size_t total = 50000;
+            size_t total = 100000;
             for (size_t i = 0; i < total; ++i)
             {
-                auto key = kPrefix + std::to_string(i);
+                auto key = kPrefix + "key1" + std::to_string(i);
                 mutations[key] = vPrefix + std::to_string(i);
             }
             mutations["a"] = "a1";
@@ -280,6 +280,11 @@ namespace
             mutations2["d"] = "d";
             mutations2["e"] = "e";
             mutations2["f"] = "f";
+            for (size_t i = 0; i < total; ++i)
+            {
+                auto key =  kPrefix + "key2" +std::to_string(i);
+                mutations2[key] = vPrefix + std::to_string(i);
+            }
             BCOSTwoPhaseCommitter committer2(test_cluster.get(), "a", std::move(mutations2));
             // std::this_thread::sleep_for(std::chrono::seconds(20));
             committer2.prewriteKeys(start_ts);
@@ -314,14 +319,16 @@ namespace
             }
             auto end = std::chrono::system_clock::now();
             std::cout << "scanner(ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << std::endl;
-            ASSERT_EQ(count, total);
+            ASSERT_EQ(count, total * 2);
 
             // delete all
             std::unordered_map<std::string, std::string> mutations3;
             for (size_t i = 0; i < total; ++i)
             {
-                auto key = kPrefix + std::to_string(i);
-                mutations3[key] = "";
+                auto key1 = kPrefix + "key1"+ std::to_string(i);
+                auto key2 =  kPrefix + "key2" +std::to_string(i);
+                mutations3[key1] = "";
+                mutations3[key2] = "";
             }
             mutations3["a"] = "";
             mutations3["b"] = "";

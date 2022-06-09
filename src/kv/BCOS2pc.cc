@@ -163,23 +163,24 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
               { req->set_max_commit_ts(min_commit_ts - 1); });
 
     coroutines.emplace_back([&, index = i](coro_t::pull_type &in) {
-      //   for (;;) {
-      try {
-        RegionClient region_client(cluster, batches[index].region);
-        responses[index] =
-            region_client.asyncSendReqToRegion(bo, requests[index], &cq, in);
-      } catch (Exception &e) {
-        log->warning("prewriteSingleBatch failed, " + std::string(e.what()) +
-                     ":" + e.message());
-        // Region Error.
-        bo.backoff(boRegionMiss, e);
-        prewriteKeys(bo, convert(batches[index].keys));
+      for (;;) {
+        try {
+          RegionClient region_client(cluster, batches[index].region);
+          responses[index] =
+              region_client.asyncSendReqToRegion(bo, requests[index], &cq, in);
+        } catch (Exception &e) {
+          log->warning("prewriteSingleBatch failed, " + std::string(e.what()) +
+                       ":" + e.message());
+          // Region Error.
+          bo.backoff(boRegionMiss, e);
+          prewriteKeys(bo, convert(batches[index].keys));
+        }
+        in();
       }
-      in();
-      //   }
     });
     coroutines[i](i);
   }
+  log->debug("prewriteSingleBatch requests sent");
   for (size_t i = 0; i < batches.size(); ++i) { // after finish
     size_t *id = nullptr;
     bool ok = false;
@@ -190,6 +191,7 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
     //   --i;
     // }
   }
+  log->debug("prewriteSingleBatch responses received");
   for (size_t i = 0; i < batches.size(); ++i) {
     auto response = responses[i];
     if (!response) {
@@ -221,6 +223,7 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
             Exception("2PC prewrite locked: " + std::to_string(locks.size()),
                       LockError));
       }
+      log->debug("prewriteSingleBatch retry batch");
       // retry
       coroutines[i](i);
       size_t *id = nullptr;

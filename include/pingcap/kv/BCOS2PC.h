@@ -88,8 +88,8 @@ public:
     } catch (Exception &e) {
       if (!commited) {
         // TODO: Rollback keys.
-        std::cout << "prewrite failed, message:" << e.what() << ":"
-                  << e.message() << std::endl;
+        log->warning("prewrite failed, message:" + std::string(e.what()) + ":" +
+                     e.message());
         rollbackKeys(prewrite_bo, keys);
       }
       log->warning("write commit exception: " + e.displayText());

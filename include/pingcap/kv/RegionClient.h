@@ -108,6 +108,7 @@ namespace pingcap
                     catch (const Exception &e)
                     {
                         onSendFail(bo, e, ctx);
+                        log->warning("send failed, " + std::string(e.what()) + ":" + e.message());
                         continue;
                     }
 

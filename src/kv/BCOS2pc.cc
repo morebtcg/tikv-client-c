@@ -185,16 +185,17 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
     bool ok = false;
     cq.Next((void **)&id, &ok);
     coroutines[*id](*id);
-    if (!ok) { // retry
-      --i;
-    }
+    // if (!ok) { // retry
+    //   log->warning("CompletionQueue got failed retry");
+    //   --i;
+    // }
   }
   for (size_t i = 0; i < batches.size(); ++i) {
     auto response = responses[i];
-    // if (!response) {
-    //   log->warning("prewriteSingleBatch skip empty response");
-    //   continue;
-    // }
+    if (!response) {
+      log->warning("prewriteSingleBatch skip empty response");
+      continue;
+    }
     if (response->errors_size() != 0) {
       std::vector<LockPtr> locks;
       int size = response->errors_size();

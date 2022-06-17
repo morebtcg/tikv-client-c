@@ -108,13 +108,13 @@ namespace pingcap
                     catch (const Exception &e)
                     {
                         onSendFail(bo, e, ctx);
-                        log->warning("send failed, " + std::string(e.what()) + ":" + e.message());
+                        log->warning("asyncSendReqToRegion send failed, " + std::string(e.what()) + ":" + e.message());
                         continue;
                     }
 
                     if (resp->has_region_error())
                     {
-                        log->warning("region " + region_id.toString() + " find error: " + resp->region_error().message());
+                        log->warning("asyncSendReqToRegion region " + region_id.toString() + " find error: " + resp->region_error().message());
                         onRegionError(bo, ctx, resp->region_error());
                     }
                     else

@@ -3,6 +3,7 @@
 #include <pingcap/kv/RegionClient.h>
 #include <pingcap/kv/Txn.h>
 #include <pingcap/pd/Oracle.h>
+#include <string>
 
 using namespace std;
 
@@ -19,7 +20,7 @@ BCOSTwoPhaseCommitter::BCOSTwoPhaseCommitter(
     Cluster *_cluster, const std::string_view &_primary_lock,
     std::unordered_map<std::string, std::string> &&_mutations)
     : mutations(std::move(_mutations)), cluster(_cluster),
-      log(&Logger::get("pingcap.tikv")) {
+      log(&Logger::get("pingcap.bcos2pc")) {
   start_ts = cluster->pd_client->getTS();
   start_time = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::system_clock::now().time_since_epoch());
@@ -50,7 +51,6 @@ void BCOSTwoPhaseCommitter::prewriteSingleBatch(Backoffer &bo,
 
       auto *mut = req->add_mutations();
       std::string skey(key);
-      mut->set_value(mutations[skey]);
       if (mutations[skey].empty()) {
         mut->set_op(kvrpcpb::Op::Del);
       } else {
@@ -75,7 +75,7 @@ void BCOSTwoPhaseCommitter::prewriteSingleBatch(Backoffer &bo,
     try {
       response = region_client.sendReqToRegion(bo, req);
     } catch (Exception &e) {
-      log->warning("prewriteSingleBatch failed, " + std::string(e.what()) +
+      log->warning("prewriteSingleBatch exception, " + std::string(e.what()) +
                    ":" + e.message());
       // Region Error.
       bo.backoff(boRegionMiss, e);
@@ -89,7 +89,7 @@ void BCOSTwoPhaseCommitter::prewriteSingleBatch(Backoffer &bo,
       for (int i = 0; i < size; i++) {
         const auto &err = response->errors(i);
         if (err.has_already_exist()) {
-          log->warning("prewriteSingleBatch failed, errors: key : " +
+          log->warning("prewriteSingleBatch error, errors: key : " +
                        Redact::keyToDebugString(err.already_exist().key()) +
                        " has existed.");
           throw Exception(
@@ -164,23 +164,28 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
 
     coroutines.emplace_back([&, index = i](coro_t::pull_type &in) {
       for (;;) {
+        log->trace("prewriteSingleBatch start,index=" + to_string(index));
         try {
           RegionClient region_client(cluster, batches[index].region);
           responses[index] =
               region_client.asyncSendReqToRegion(bo, requests[index], &cq, in);
         } catch (Exception &e) {
-          log->warning("prewriteSingleBatch failed, " + std::string(e.what()) +
-                       ":" + e.message());
+          log->warning("prewriteSingleBatch exception, " +
+                       std::string(e.what()) + ":" + e.message());
           // Region Error.
           bo.backoff(boRegionMiss, e);
           prewriteKeys(bo, convert(batches[index].keys));
         }
+        log->trace("prewriteSingleBatch finished,index=" + to_string(index));
         in();
       }
     });
     coroutines[i](i);
   }
-  log->debug("prewriteSingleBatch requests sent");
+  log->debug(
+      "prewriteSingleBatch requests sent, batches.size=" +
+      to_string(batches.size()) + ", primary_lock=" +
+      (mutations.count(primary_lock) ? mutations[primary_lock] : primary_lock));
   for (size_t i = 0; i < batches.size(); ++i) { // after finish
     size_t *id = nullptr;
     bool ok = false;
@@ -195,7 +200,8 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
   for (size_t i = 0; i < batches.size(); ++i) {
     auto response = responses[i];
     if (!response) {
-      log->warning("prewriteSingleBatch skip empty response");
+      log->warning("prewriteSingleBatch skip empty response, index=" +
+                   to_string(i));
       continue;
     }
     if (response->errors_size() != 0) {
@@ -204,7 +210,7 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
       for (int i = 0; i < size; i++) {
         const auto &err = response->errors(i);
         if (err.has_already_exist()) {
-          log->warning("prewriteSingleBatch failed, errors: key : " +
+          log->warning("prewriteSingleBatch key already exist error, key : " +
                        Redact::keyToDebugString(err.already_exist().key()) +
                        " has existed.");
           throw Exception(
@@ -212,6 +218,8 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
                   " has existed.",
               LogicalError);
         }
+        log->trace("prewriteSingleBatch failed,index=" + to_string(i) +
+                   ",error:" + err.ShortDebugString());
         auto lock = extractLockFromKeyErr(err);
         locks.push_back(lock);
       }
@@ -223,7 +231,7 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
             Exception("2PC prewrite locked: " + std::to_string(locks.size()),
                       LockError));
       }
-      log->debug("prewriteSingleBatch retry batch");
+      log->debug("prewriteSingleBatch retry batch, index=" + to_string(i));
       // retry
       coroutines[i](i);
       size_t *id = nullptr;
@@ -259,8 +267,9 @@ void BCOSTwoPhaseCommitter::rollbackSingleBatch(Backoffer &bo,
   try {
     response = region_client.sendReqToRegion(bo, req);
   } catch (Exception &e) { // Region Error.
-    log->warning("rollbackSingleBatch failed, " + std::string(e.what()) + ":" +
-                 e.message());
+    log->warning("rollbackSingleBatch exception and retry, " +
+                 std::string(e.what()) + ":" + e.message() +
+                 ", batch.size=" + to_string(batch.keys.size()));
     bo.backoff(boRegionMiss, e);
     rollbackKeys(bo, convert(batch.keys));
     return;

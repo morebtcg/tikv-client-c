@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <memory>
+#include <string>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -118,12 +119,16 @@ public:
       if (!commited) {
         // TODO: Rollback keys.
         rollbackKeys(commit_bo, keys);
-        std::cerr << "commit failed, message:" << e.what() << ":" << e.message()
-                  << std::endl;
+        log->warning("commit failed, message:" + std::string(e.what()) + ":" +
+                     e.message());
       }
-      log->warning("write commit exception: " + e.displayText());
+      log->warning("commit exception: " + e.displayText());
       throw;
     }
+    log->debug("commitKeys finished, primary_lock: " +
+               (mutations.count(primary_lock) ? mutations[primary_lock]
+                                              : primary_lock) +
+               ", commit_ts: " + std::to_string(commit_ts));
   }
 
 private:

@@ -205,7 +205,7 @@ void Client::leaderLoop()
             }
             catch (Exception & e)
             {
-                log->error(e.displayText());
+                log->error("PDLeaderLoop exception:" + e.displayText());
             }
         }
     }

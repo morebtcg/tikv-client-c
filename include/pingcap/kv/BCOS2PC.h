@@ -165,9 +165,11 @@ private:
           if constexpr (action == ActionPrewrite)
             size += mutations[key].size();
 
-          if (key == primary_lock)
-            primary_idx = batches->size();
           sub_keys.push_back(key);
+          if (key == primary_lock) {
+            primary_idx = batches->size();
+            std::swap(sub_keys[0], sub_keys[sub_keys.size() - 1]);
+          }
         }
         batches->emplace_back(BatchKeys(group.first, sub_keys));
       }

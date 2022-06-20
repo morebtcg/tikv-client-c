@@ -207,8 +207,8 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
     if (response->errors_size() != 0) {
       std::vector<LockPtr> locks;
       int size = response->errors_size();
-      for (int i = 0; i < size; i++) {
-        const auto &err = response->errors(i);
+      for (int j = 0; j < size; j++) {
+        const auto &err = response->errors(j);
         if (err.has_already_exist()) {
           log->warning("prewriteSingleBatch key already exist error, key : " +
                        Redact::keyToDebugString(err.already_exist().key()) +
@@ -252,6 +252,10 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
       }
     }
   }
+  log->debug(
+      "prewriteSingleBatch finished, batches.size=" +
+      to_string(batches.size()) + ", primary_lock=" +
+      (mutations.count(primary_lock) ? mutations[primary_lock] : primary_lock));
 }
 
 void BCOSTwoPhaseCommitter::rollbackSingleBatch(Backoffer &bo,

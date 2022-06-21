@@ -163,21 +163,25 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
               { req->set_max_commit_ts(min_commit_ts - 1); });
 
     coroutines.emplace_back([&, index = i](coro_t::pull_type &in) {
+      log->trace("prewriteSingleBatch start,index=" + to_string(index));
+      try {
+        RegionClient region_client(cluster, batches[index].region);
+        responses[index] =
+            region_client.asyncSendReqToRegion(bo, requests[index], &cq, in);
+      } catch (Exception &e) {
+        log->warning("prewriteSingleBatch exception, " + std::string(e.what()) +
+                     ":" + e.message());
+        // Region Error.
+        bo.backoff(boRegionMiss, e);
+        prewriteKeys(bo, convert(batches[index].keys));
+      }
+      log->trace("prewriteSingleBatch finished,index=" + to_string(index));
+
       for (;;) {
-        log->trace("prewriteSingleBatch start,index=" + to_string(index));
-        try {
-          RegionClient region_client(cluster, batches[index].region);
-          responses[index] =
-              region_client.asyncSendReqToRegion(bo, requests[index], &cq, in);
-        } catch (Exception &e) {
-          log->warning("prewriteSingleBatch exception, " +
-                       std::string(e.what()) + ":" + e.message());
-          // Region Error.
-          bo.backoff(boRegionMiss, e);
-          prewriteKeys(bo, convert(batches[index].keys));
-        }
-        log->trace("prewriteSingleBatch finished,index=" + to_string(index));
         in();
+        log->trace("prewriteSingleBatch retry,index=" + to_string(index));
+        prewriteKeys(bo, convert(batches[index].keys));
+        log->trace("prewriteSingleBatch retry finished,index=" + to_string(index));
       }
     });
     coroutines[i](i);
@@ -234,12 +238,12 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
       log->debug("prewriteSingleBatch retry batch, index=" + to_string(i));
       // retry
       coroutines[i](i);
-      size_t *id = nullptr;
-      bool ok = false;
-      cq.Next((void **)&id, &ok);
-      assert(*id == i);
-      coroutines[i](i);
-      --i;
+      // size_t *id = nullptr;
+      // bool ok = false;
+      // cq.Next((void **)&id, &ok);
+      // assert(*id == i);
+      // coroutines[i](i);
+      // --i;
       continue;
     } else {
       if (batches[i].keys[0] == primary_lock) {

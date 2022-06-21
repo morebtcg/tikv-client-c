@@ -474,7 +474,7 @@ void LockResolver::checkSecondaries(
 
 TxnStatus LockResolver::getTxnStatusFromLock(Backoffer & bo, LockPtr lock, uint64_t caller_start_ts, bool force_sync_commit)
 {
-    log->debug("try to get txn status, key=" + lock->key + ", txn_id=" + std::to_string(lock->txn_id) +
+    log->debug("try to get txn status, key=" + Redact::keyToDebugString(lock->key) + ", txn_id=" + std::to_string(lock->txn_id) +
         ", start_ts=" + std::to_string(caller_start_ts) + ", primary=" + lock->primary);
     uint64_t current_ts;
     if (lock->ttl == 0)

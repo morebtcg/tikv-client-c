@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Poco/LogStream.h"
+#include <chrono>
 #include <pingcap/Exception.h>
 #include <pingcap/kv/2pc.h>
 #include <pingcap/kv/Backoff.h>
@@ -60,6 +62,7 @@ private:
   TTLManager<BCOSTwoPhaseCommitter> ttl_manager;
 
   Logger *log;
+  Poco::LogStream logStream;
 
   friend class TTLManager<BCOSTwoPhaseCommitter>;
   struct BatchKeys {
@@ -195,11 +198,14 @@ private:
 
   template <Action action>
   void doActionOnKeys(Backoffer &bo, const std::vector<std::string> &cur_keys) {
+    auto start = std::chrono::system_clock::now();
     auto groups = m_groups;
     if (cur_keys.size() != keys.size()) {
       groups = prepareGroups(cur_keys);
     }
+    auto prepareGroupsEnd = std::chrono::system_clock::now();
     auto batches = prepareBatches<action>(groups);
+    auto prepareBatchesEnd = std::chrono::system_clock::now();
 
     if constexpr (action == ActionCommit || action == ActionCleanUp) {
       if constexpr (action == ActionCommit) {
@@ -213,6 +219,20 @@ private:
     if (action != ActionCommit || !fiu_fail("rest commit fail")) {
       doActionOnBatches<action>(bo, *batches);
     }
+    auto doActionOnBatchesEnd = std::chrono::system_clock::now();
+    logStream.debug() << "doActionOnKeys finished, prepareGroupsTime(ms)="
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(
+                             prepareGroupsEnd - start)
+                             .count()
+                      << ", prepareBatchesTime(ms)="
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(
+                             prepareBatchesEnd - prepareGroupsEnd)
+                             .count()
+                      << ", doActionOnBatchesTime(ms)="
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(
+                             doActionOnBatchesEnd - prepareBatchesEnd)
+                             .count()
+                      << std::endl;
   }
 
   template <Action action>

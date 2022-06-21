@@ -20,7 +20,7 @@ BCOSTwoPhaseCommitter::BCOSTwoPhaseCommitter(
     Cluster *_cluster, const std::string_view &_primary_lock,
     std::unordered_map<std::string, std::string> &&_mutations)
     : mutations(std::move(_mutations)), cluster(_cluster),
-      log(&Logger::get("pingcap.bcos2pc")) {
+      log(&Logger::get("pingcap.bcos2pc")), logStream(*log) {
   start_ts = cluster->pd_client->getTS();
   start_time = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::system_clock::now().time_since_epoch());
@@ -126,7 +126,8 @@ void BCOSTwoPhaseCommitter::prewriteSingleBatch(Backoffer &bo,
 
 void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
     Backoffer &bo, const std::vector<BatchKeys> &batches) {
-  // TODO: create request
+  // create request
+  auto start = std::chrono::system_clock::now();
   using coro_t = boost::coroutines2::coroutine<size_t>;
   std::vector<shared_ptr<kvrpcpb::PrewriteRequest>> requests(batches.size(),
                                                              nullptr);
@@ -157,7 +158,7 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
     req->set_txn_size(batch_txn_size);
     req->set_max_commit_ts(max_commit_ts);
 
-    // TODO: set right min_commit_ts for pessimistic lock
+    // set right min_commit_ts for pessimistic lock
     req->set_min_commit_ts(start_ts + 1);
     fiu_do_on("invalid_max_commit_ts",
               { req->set_max_commit_ts(min_commit_ts - 1); });
@@ -179,13 +180,21 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
 
       for (;;) {
         in();
-        log->trace("prewriteSingleBatch retry,index=" + to_string(index));
+        auto start = std::chrono::system_clock::now();
+        log->trace("prewrite retry,index=" + to_string(index));
         prewriteKeys(bo, convert(batches[index].keys));
-        log->trace("prewriteSingleBatch retry finished,index=" + to_string(index));
+        auto retryEnd = std::chrono::system_clock::now();
+        logStream.trace()
+            << "prewrite retry finished,index=" << to_string(index)
+            << ", retryTime(ms)="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(retryEnd -
+                                                                     start)
+                   .count();
       }
     });
     coroutines[i](i);
   }
+  auto sendEnd = std::chrono::system_clock::now();
   log->debug(
       "prewriteSingleBatch requests sent, batches.size=" +
       to_string(batches.size()) + ", primary_lock=" +
@@ -200,7 +209,8 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
     //   --i;
     // }
   }
-  log->debug("prewriteSingleBatch responses received");
+  auto receiveEnd = std::chrono::system_clock::now();
+  log->trace("prewriteSingleBatch responses received");
   for (size_t i = 0; i < batches.size(); ++i) {
     auto response = responses[i];
     if (!response) {
@@ -235,7 +245,7 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
             Exception("2PC prewrite locked: " + std::to_string(locks.size()),
                       LockError));
       }
-      log->debug("prewriteSingleBatch retry batch, index=" + to_string(i));
+      log->debug("prewriteSingleBatch retry batch,index=" + to_string(i));
       // retry
       coroutines[i](i);
       // size_t *id = nullptr;
@@ -256,10 +266,24 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
       }
     }
   }
-  log->debug(
-      "prewriteSingleBatch finished, batches.size=" +
-      to_string(batches.size()) + ", primary_lock=" +
-      (mutations.count(primary_lock) ? mutations[primary_lock] : primary_lock));
+  auto processEnd = std::chrono::system_clock::now();
+  logStream.debug() << "prewriteSingleBatch finished, batches.size="
+                    << to_string(batches.size()) + ", primary_lock="
+                    << (mutations.count(primary_lock) ? mutations[primary_lock]
+                                                      : primary_lock)
+                    << ", sendTime(ms)="
+                    << std::chrono::duration_cast<std::chrono::milliseconds>(
+                           sendEnd - start)
+                           .count()
+                    << ", receiveTime(ms)="
+                    << std::chrono::duration_cast<std::chrono::milliseconds>(
+                           receiveEnd - sendEnd)
+                           .count()
+                    << ", processTime(ms)="
+                    << std::chrono::duration_cast<std::chrono::milliseconds>(
+                           processEnd - receiveEnd)
+                           .count()
+                    << std::endl;
 }
 
 void BCOSTwoPhaseCommitter::rollbackSingleBatch(Backoffer &bo,

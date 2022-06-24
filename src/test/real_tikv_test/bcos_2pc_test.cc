@@ -114,6 +114,77 @@ namespace
         }
     }
 
+    TEST_F(TestWith2PCRealTiKV, bcosCommmit_100)
+    {
+        // Prewrite
+        {
+            clean();
+            size_t commitSize = 10000;
+            size_t loop = 100;
+            for(size_t i = 0; i< loop; ++i)
+            {
+                srand (time(NULL));
+
+                // scheduler prewrite
+                std::unordered_map<std::string, std::string> mutations;
+                mutations["a"] = "a1";
+                mutations["b"] = "b1";
+                mutations["c"] = "c1";
+
+                std::unordered_map<std::string, std::string> mutations2;
+                std::vector<std::string> keys;
+                keys.reserve(commitSize);
+                for(size_t j = 0; j< commitSize; ++j)
+                {
+                    keys.push_back(std::to_string(rand()));
+                    auto &key = keys[i];
+                    mutations2[key] = "value________________________________" + key;
+                }
+                auto start = std::chrono::system_clock::now();
+                BCOSTwoPhaseCommitter committer{test_cluster.get(), "a", std::move(mutations)};
+                auto result = committer.prewriteKeys();
+                auto prewriteKeys0 = std::chrono::system_clock::now();
+                auto primary_key = result.primary_lock;
+                ASSERT_EQ(primary_key, "a");
+                auto start_ts = result.start_ts;
+                ASSERT_NE(start_ts, 0);
+
+                // executor prewrite
+                BCOSTwoPhaseCommitter committer2(test_cluster.get(), "a", std::move(mutations2));
+                // std::this_thread::sleep_for(std::chrono::seconds(20));
+                committer2.prewriteKeys(start_ts);
+                auto prewriteKeys1 = std::chrono::system_clock::now();
+                // scheduler commit
+                committer.commitKeys();
+                auto commit = std::chrono::system_clock::now();
+                std::cout<< "prewrite0(ms)="<< std::chrono::duration_cast<std::chrono::milliseconds>(
+                             prewriteKeys0 - start)
+                             .count()
+                             << ",prewrite1(ms)="<< std::chrono::duration_cast<std::chrono::milliseconds>(
+                             prewriteKeys1 -prewriteKeys0 )
+                             .count()<<std::endl;
+                committer2.commitKeys();
+                // // query and check
+                Snapshot snap(test_cluster.get());
+
+                for(size_t j = 0; j< commitSize; ++j)
+                {
+                    auto &key = keys[i];
+                    ASSERT_EQ(snap.Get(key), "value________________________________" + key);
+                }
+
+                // BatchGet
+                // auto result2 = snap.BatchGet({"a", "b", "c", "d", "e", "f"});
+                // ASSERT_EQ(result2["a"], "a1");
+                // ASSERT_EQ(result2["b"], "b1");
+                // ASSERT_EQ(result2["c"], "c1");
+                // ASSERT_EQ(result2["d"], "d");
+                // ASSERT_EQ(result2["e"], "e");
+                // ASSERT_EQ(result2["f"], "f");
+            }
+        }
+    }
+
     TEST_F(TestWith2PCRealTiKV, testPrewriteRollback)
     {
         // Prewrite

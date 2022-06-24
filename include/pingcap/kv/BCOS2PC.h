@@ -211,10 +211,13 @@ private:
       if constexpr (action == ActionCommit) {
         fiu_do_on("all commit fail", return );
       }
-      doActionOnBatches<action>(
-          bo, std::vector<BatchKeys>(batches->begin(), batches->begin() + 1));
-      batches =
-          std::make_shared<BatchesType>(batches->begin() + 1, batches->end());
+      if(batches->size() > 0)
+      {
+        doActionOnBatches<action>(
+            bo, std::vector<BatchKeys>(batches->begin(), batches->begin() + 1));
+        batches =
+            std::make_shared<BatchesType>(batches->begin() + 1, batches->end());
+      }
     }
     if (action != ActionCommit || !fiu_fail("rest commit fail")) {
       doActionOnBatches<action>(bo, *batches);

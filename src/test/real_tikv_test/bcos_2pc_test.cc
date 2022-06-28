@@ -1,8 +1,13 @@
+#include <ostream>
 #include <pingcap/Exception.h>
 #include <pingcap/kv/Scanner.h>
 #include <pingcap/kv/Snapshot.h>
 #include <pingcap/kv/Txn.h>
 #include <pingcap/kv/BCOS2PC.h>
+#include "Poco/FileChannel.h"
+#include "Poco/FormattingChannel.h"
+#include "Poco/PatternFormatter.h"
+#include "Poco/StreamChannel.h"
 #include <iostream>
 #include <chrono>
 
@@ -48,6 +53,17 @@ namespace
             std::vector<std::string> pd_addrs{"127.0.0.1:2379"};
 
             test_cluster = createCluster(pd_addrs);
+            auto fileChannel =
+            Poco::AutoPtr<Poco::FileChannel>(new Poco::FileChannel("tikv-client.log"));
+            // fileChannel->setProperty("path", "tikv-client.log");
+            fileChannel->setProperty("rotation", "20 M");
+            fileChannel->setProperty("archive", "timestamp");
+            auto formatter = Poco::AutoPtr<Poco::Formatter>(
+                new Poco::PatternFormatter("%L%p|%Y-%m-%d %H:%M:%S.%i|%T-%I|[%s]%t"));
+            formatter->setProperty("times", "local");
+            Poco::AutoPtr<Poco::Channel> pChannel(new Poco::FormattingChannel(formatter, fileChannel));
+            Poco::Logger::root().setLevel(Poco::Message::PRIO_DEBUG);  // PRIO_TRACE
+            Poco::Logger::root().setChannel(pChannel);
         }
         void clean()
         {
@@ -119,26 +135,30 @@ namespace
         // Prewrite
         {
             clean();
-            size_t commitSize = 10000;
+            size_t commitSize = 100000;
             size_t loop = 100;
-            for(size_t i = 0; i< loop; ++i)
+
+            for(size_t i = 0; i < loop; ++i)
             {
                 srand (time(NULL));
 
                 // scheduler prewrite
                 std::unordered_map<std::string, std::string> mutations;
-                mutations["a"] = "a1";
-                mutations["b"] = "b1";
-                mutations["c"] = "c1";
+                mutations["a"] = std::to_string(rand());
+                mutations["b"] = std::to_string(rand());
+                mutations["c"] = std::to_string(rand());
 
                 std::unordered_map<std::string, std::string> mutations2;
-                std::vector<std::string> keys;
+                std::vector<std::string> keys, values;
                 keys.reserve(commitSize);
-                for(size_t j = 0; j< commitSize; ++j)
+                values.reserve(commitSize);
+                for(size_t j = 0; j < commitSize; ++j)
                 {
-                    keys.push_back(std::to_string(rand()));
-                    auto &key = keys[i];
-                    mutations2[key] = "value________________________________" + key;
+                    keys.push_back("key________________________________" +  std::to_string(rand()));
+                    std::string value(64, 'a');
+                    value += "value________________________________" + std::to_string(rand());
+                    values.push_back(std::move(value));
+                    mutations2[keys[i]] = values[i];
                 }
                 auto start = std::chrono::system_clock::now();
                 BCOSTwoPhaseCommitter committer{test_cluster.get(), "a", std::move(mutations)};
@@ -156,31 +176,36 @@ namespace
                 auto prewriteKeys1 = std::chrono::system_clock::now();
                 // scheduler commit
                 committer.commitKeys();
+                auto commitKeysEnd = std::chrono::system_clock::now();
                 auto commit = std::chrono::system_clock::now();
-                std::cout<< "prewrite0(ms)="<< std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::cout<< i << ",prewrite0(ms)="<< std::chrono::duration_cast<std::chrono::milliseconds>(
                              prewriteKeys0 - start)
                              .count()
                              << ",prewrite1(ms)="<< std::chrono::duration_cast<std::chrono::milliseconds>(
-                             prewriteKeys1 -prewriteKeys0 )
+                             prewriteKeys1 - prewriteKeys0)
+                             .count()<< ",prewrite(ms)="<< std::chrono::duration_cast<std::chrono::milliseconds>(
+                             prewriteKeys1 - start)
+                             .count()<< ",commit(ms)="<< std::chrono::duration_cast<std::chrono::milliseconds>(
+                             commitKeysEnd - prewriteKeys1)
                              .count()<<std::endl;
-                committer2.commitKeys();
-                // // query and check
+                // committer2.commitKeys();
+
                 Snapshot snap(test_cluster.get());
 
+                // for(size_t j = 0; j< commitSize; ++j)
+                // {// query and check
+                //     ASSERT_EQ(snap.Get(keys[i]), values[i]);
+                // }
+
+                auto result2 = snap.BatchGet(keys);
                 for(size_t j = 0; j< commitSize; ++j)
                 {
-                    auto &key = keys[i];
-                    ASSERT_EQ(snap.Get(key), "value________________________________" + key);
+                    if(result2[keys[i]] != values[i])
+                    {
+                        std::cout<<"failed key="<<keys[i]<<std::endl;
+                    }
+                    ASSERT_EQ(result2[keys[i]], values[i]);
                 }
-
-                // BatchGet
-                // auto result2 = snap.BatchGet({"a", "b", "c", "d", "e", "f"});
-                // ASSERT_EQ(result2["a"], "a1");
-                // ASSERT_EQ(result2["b"], "b1");
-                // ASSERT_EQ(result2["c"], "c1");
-                // ASSERT_EQ(result2["d"], "d");
-                // ASSERT_EQ(result2["e"], "e");
-                // ASSERT_EQ(result2["f"], "f");
             }
         }
     }

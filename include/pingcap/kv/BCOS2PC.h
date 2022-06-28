@@ -198,14 +198,14 @@ private:
 
   template <Action action>
   void doActionOnKeys(Backoffer &bo, const std::vector<std::string> &cur_keys) {
-    auto start = std::chrono::system_clock::now();
+    // auto start = std::chrono::system_clock::now();
     auto groups = m_groups;
     if (cur_keys.size() != keys.size()) {
       groups = prepareGroups(cur_keys);
     }
-    auto prepareGroupsEnd = std::chrono::system_clock::now();
+    // auto prepareGroupsEnd = std::chrono::system_clock::now();
     auto batches = prepareBatches<action>(groups);
-    auto prepareBatchesEnd = std::chrono::system_clock::now();
+    // auto prepareBatchesEnd = std::chrono::system_clock::now();
 
     if constexpr (action == ActionCommit || action == ActionCleanUp) {
       if constexpr (action == ActionCommit) {
@@ -222,20 +222,20 @@ private:
     if (action != ActionCommit || !fiu_fail("rest commit fail")) {
       doActionOnBatches<action>(bo, *batches);
     }
-    auto doActionOnBatchesEnd = std::chrono::system_clock::now();
-    logStream.debug() << "doActionOnKeys finished, prepareGroupsTime(ms)="
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(
-                             prepareGroupsEnd - start)
-                             .count()
-                      << ", prepareBatchesTime(ms)="
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(
-                             prepareBatchesEnd - prepareGroupsEnd)
-                             .count()
-                      << ", doActionOnBatchesTime(ms)="
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(
-                             doActionOnBatchesEnd - prepareBatchesEnd)
-                             .count()
-                      << std::endl;
+    // auto doActionOnBatchesEnd = std::chrono::system_clock::now();
+    // logStream.debug() << "doActionOnKeys finished, prepareGroupsTime(ms)="
+    //                   << std::chrono::duration_cast<std::chrono::milliseconds>(
+    //                          prepareGroupsEnd - start)
+    //                          .count()
+    //                   << ", prepareBatchesTime(ms)="
+    //                   << std::chrono::duration_cast<std::chrono::milliseconds>(
+    //                          prepareBatchesEnd - prepareGroupsEnd)
+    //                          .count()
+    //                   << ", doActionOnBatchesTime(ms)="
+    //                   << std::chrono::duration_cast<std::chrono::milliseconds>(
+    //                          doActionOnBatchesEnd - prepareBatchesEnd)
+    //                          .count()
+    //                   << std::endl;
   }
 
   template <Action action>

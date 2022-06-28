@@ -19,7 +19,7 @@ struct Snapshot
 
     Snapshot(Cluster * cluster_, uint64_t version_) : cluster(cluster_), version(version_) {}
     Snapshot(Cluster * cluster_) : cluster(cluster_), version(cluster_->pd_client->getTS()), log(&Logger::get("pingcap.tikv")) {}
-
+    // FIXME: BatchGet has bug
     std::map<std::string,std::string> BatchGet(const std::vector<std::string> & keys);
     std::string Get(const std::string & key);
     std::string Get(Backoffer & bo, const std::string & key);

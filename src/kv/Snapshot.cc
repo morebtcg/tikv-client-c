@@ -78,59 +78,94 @@ std::map<std::string,std::string> Snapshot::BatchGet(const std::vector<std::stri
     std::ignore = first_region;
     for(auto &group : groups)
     {
-        for (;;)
+        auto request = std::make_shared<kvrpcpb::BatchGetRequest>();
+        for(size_t i = 0; i < group.second.size(); ++i)
         {
-            auto request = std::make_shared<kvrpcpb::BatchGetRequest>();
-            for(size_t i = 0; i < group.second.size(); ++i)
-            {
-                request->add_keys(group.second[i]);
-            }
-            request->set_version(version);
-            ::kvrpcpb::Context * context = request->mutable_context();
-            context->set_priority(::kvrpcpb::Normal);
-            context->set_not_fill_cache(false);
-            for (auto ts : min_commit_ts_pushed.get_timestamps())
-            {
-                context->add_resolved_locks(ts);
-            }
+            request->add_keys(group.second[i]);
+        }
+        request->set_version(version);
+        ::kvrpcpb::Context * context = request->mutable_context();
+        context->set_priority(::kvrpcpb::Normal);
+        context->set_not_fill_cache(false);
+        for (auto ts : min_commit_ts_pushed.get_timestamps())
+        {
+            context->add_resolved_locks(ts);
+        }
 
-            auto region_client = RegionClient(cluster, group.first);
+        auto region_client = RegionClient(cluster, group.first);
 
-            std::shared_ptr<::kvrpcpb::BatchGetResponse> response;
-            try
-            {
-                response = region_client.sendReqToRegion(bo, request);
-            }
-            catch (Exception & e)
-            {
-                log->warning("Snapshot BatchGet failed, " + std::string(e.what()) + ":" +
-                 e.message());
-                bo.backoff(boRegionMiss, e);
-                continue;
-            }
-            if (response->has_error())
-            {
-                auto lock = extractLockFromKeyErr(response->error());
-                std::vector<LockPtr> locks{lock};
-                std::vector<uint64_t> pushed;
-                auto before_expired = cluster->lock_resolver->ResolveLocks(bo, version, locks, pushed);
+        std::shared_ptr<::kvrpcpb::BatchGetResponse> response;
+        try
+        {
+            response = region_client.sendReqToRegion(bo, request);
+        }
+        catch (Exception & e)
+        {
+            log->warning("Snapshot BatchGet Exception, " + std::string(e.what()) + ":" +
+                e.message());
+            bo.backoff(boRegionMiss, e);
+            auto ret = BatchGet(group.second);
+            result.merge(ret);
+            continue;
+        }
+        if (response->has_error())
+        {
+            auto lock = extractLockFromKeyErr(response->error());
+            std::vector<LockPtr> locks{lock};
+            std::vector<uint64_t> pushed;
+            auto before_expired = cluster->lock_resolver->ResolveLocks(bo, version, locks, pushed);
 
-                if (!pushed.empty())
-                {
-                    min_commit_ts_pushed.add_timestamps(pushed);
-                }
-                if (before_expired > 0)
-                {
-                    bo.backoffWithMaxSleep(
-                        boTxnLockFast, before_expired, Exception("key error : " + response->error().ShortDebugString(), LockError));
-                }
-                continue;
-            }
-            for(auto & pair :response->pairs())
+            if (!pushed.empty())
             {
-                result[pair.key()] = pair.value();
+                min_commit_ts_pushed.add_timestamps(pushed);
             }
-            break;
+            if (before_expired > 0)
+            {
+                bo.backoffWithMaxSleep(
+                    boTxnLockFast, before_expired, Exception("key error : " + response->error().ShortDebugString(), LockError));
+            }
+            log->debug("Snapshot BatchGet response error, " + response->error().ShortDebugString());
+            auto ret = BatchGet(group.second);
+            result.merge(ret);
+            continue;
+        }
+        std::vector<std::string> lockedKeys;
+        std::vector<LockPtr> locks;
+        for(size_t i =0; i<response->pairs().size() ;++i)
+        // for(auto & pair :response->pairs())
+        {
+            auto & pair = response->pairs()[i];
+            if(pair.has_error())
+            {
+                // std::cout<<"Snapshot BatchGetkey error="<<pair.key()<<",k="<< group.second[i] << ",error:"<< pair.error().DebugString()<< lock->key <<std::endl;
+                auto lock = extractLockFromKeyErr(pair.error());
+                locks.push_back(lock);
+                lockedKeys.push_back(lock->key);
+            }
+            else
+            {
+                // if(!result.count(pair.key()) && pair.value().size() > 0)
+                // {
+                    result[pair.key()] = pair.value();
+                // }
+            }
+        }
+        if(lockedKeys.size() > 0)
+        {
+            std::vector<uint64_t> pushed;
+            auto before_expired = cluster->lock_resolver->ResolveLocks(bo, version, locks, pushed);
+
+            if (!pushed.empty())
+            {
+                min_commit_ts_pushed.add_timestamps(pushed);
+            }
+            if (before_expired > 0)
+            {
+                bo.backoffWithMaxSleep(
+                    boTxnLockFast, before_expired, Exception("key error : " + response->error().ShortDebugString(), LockError));
+            }
+            auto ret = BatchGet(lockedKeys);
+            result.merge(ret);
         }
     }
     return result;

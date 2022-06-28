@@ -163,35 +163,37 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
     fiu_do_on("invalid_max_commit_ts",
               { req->set_max_commit_ts(min_commit_ts - 1); });
 
-    coroutines.emplace_back([&, index = i](coro_t::pull_type &in) {
-      log->trace("prewriteSingleBatch start,index=" + to_string(index));
-      try {
-        RegionClient region_client(cluster, batches[index].region);
-        responses[index] =
-            region_client.asyncSendReqToRegion(bo, requests[index], &cq, in);
-      } catch (Exception &e) {
-        log->warning("prewriteSingleBatch exception, " + std::string(e.what()) +
-                     ":" + e.message());
-        // Region Error.
-        bo.backoff(boRegionMiss, e);
-        prewriteKeys(bo, convert(batches[index].keys));
-      }
-      log->trace("prewriteSingleBatch finished,index=" + to_string(index));
+    coroutines.emplace_back(
+        [&, index = i](coro_t::pull_type &in) {
+          log->trace("prewriteSingleBatch start,index=" + to_string(index));
+          try {
+            RegionClient region_client(cluster, batches[index].region);
+            responses[index] = region_client.asyncSendReqToRegion(
+                bo, requests[index], &cq, in);
+          } catch (Exception &e) {
+            log->warning("prewriteSingleBatch exception, " +
+                         std::string(e.what()) + ":" + e.message());
+            // Region Error.
+            bo.backoff(boRegionMiss, e);
+            prewriteKeys(bo, convert(batches[index].keys));
+          }
+          log->trace("prewriteSingleBatch finished,index=" + to_string(index));
 
-      for (;;) {
-        in();
-        auto start = std::chrono::system_clock::now();
-        log->trace("prewrite retry,index=" + to_string(index));
-        prewriteKeys(bo, convert(batches[index].keys));
-        auto retryEnd = std::chrono::system_clock::now();
-        logStream.trace()
-            << "prewrite retry finished,index=" << to_string(index)
-            << ", retryTime(ms)="
-            << std::chrono::duration_cast<std::chrono::milliseconds>(retryEnd -
-                                                                     start)
-                   .count();
-      }
-    });
+          for (;;) {
+            in();
+            auto start = std::chrono::system_clock::now();
+            log->trace("prewrite retry,index=" + to_string(index));
+            prewriteKeys(bo, convert(batches[index].keys));
+            auto retryEnd = std::chrono::system_clock::now();
+            logStream.trace()
+                << "prewrite retry finished,index=" << to_string(index)
+                << ", retryTime(ms)="
+                << std::chrono::duration_cast<std::chrono::milliseconds>(
+                       retryEnd - start)
+                       .count()
+                << std::endl;
+          }
+        });
     coroutines[i](i);
   }
   auto sendEnd = std::chrono::system_clock::now();
@@ -266,24 +268,25 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
       }
     }
   }
-  auto processEnd = std::chrono::system_clock::now();
-  logStream.debug() << "prewriteSingleBatch finished, batches.size="
-                    << to_string(batches.size()) + ", primary_lock="
-                    << (mutations.count(primary_lock) ? mutations[primary_lock]
-                                                      : primary_lock)
-                    << ", sendTime(ms)="
-                    << std::chrono::duration_cast<std::chrono::milliseconds>(
-                           sendEnd - start)
-                           .count()
-                    << ", receiveTime(ms)="
-                    << std::chrono::duration_cast<std::chrono::milliseconds>(
-                           receiveEnd - sendEnd)
-                           .count()
-                    << ", processTime(ms)="
-                    << std::chrono::duration_cast<std::chrono::milliseconds>(
-                           processEnd - receiveEnd)
-                           .count()
-                    << std::endl;
+  auto processTimeCost = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now() - receiveEnd)
+                             .count();
+  if (processTimeCost > 10) {
+    logStream.debug() << "prewriteSingleBatch finished, batches.size="
+                      << to_string(batches.size()) + ", primary_lock="
+                      << (mutations.count(primary_lock)
+                              ? mutations[primary_lock]
+                              : primary_lock)
+                      << ", sendTime(ms)="
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(
+                             sendEnd - start)
+                             .count()
+                      << ", receiveTime(ms)="
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(
+                             receiveEnd - sendEnd)
+                             .count()
+                      << ", processTime(ms)=" << processTimeCost << std::endl;
+  }
 }
 
 void BCOSTwoPhaseCommitter::rollbackSingleBatch(Backoffer &bo,

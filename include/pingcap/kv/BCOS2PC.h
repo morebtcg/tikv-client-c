@@ -53,6 +53,7 @@ private:
   int lock_ttl = 0;
 
   std::string primary_lock;
+  bool isPrimary = false;
   // commited means primary key has been written to kv stores.
   bool commited;
 
@@ -103,6 +104,7 @@ public:
   PreWriteResult prewriteKeys() {
     // the primary_lock should be current_number so we can check block
     // continuity
+    isPrimary = true;
     prewriteKeys(cluster->pd_client->getTS());
     return PreWriteResult{start_ts, primary_lock};
   }
@@ -113,7 +115,11 @@ public:
     ttl_manager.close();
   }
 
-  uint64_t commitKeys() { commitKeys(cluster->pd_client->getTS()); return commit_ts;}
+  uint64_t commitKeys() {
+    isPrimary = true;
+    commitKeys(cluster->pd_client->getTS());
+    return commit_ts;
+  }
 
   void commitKeys(uint64_t commitTS) {
     Backoffer commit_bo(commitMaxBackoff);
@@ -122,16 +128,14 @@ public:
       doActionOnKeys<ActionCommit>(commit_bo, keys);
       ttl_manager.close();
     } catch (Exception &e) {
-      auto isPrimaryBatch = mutations.count(primary_lock);
-      if (!commited && isPrimaryBatch) {
+      if (!commited && isPrimary) {
         // TODO: Rollback keys.
         rollbackKeys(commit_bo, keys);
         log->warning("commit failed, message:" + std::string(e.what()) + ":" +
                      e.message());
       }
       log->debug("commit exception: " + e.displayText());
-      if(isPrimaryBatch)
-      {
+      if (isPrimary) {
         throw e;
       }
     }
@@ -226,7 +230,7 @@ private:
       }
     }
     if (!fiu_fail("rest commit fail")) {
-      //action != ActionCommit ||
+      // action != ActionCommit ||
       doActionOnBatches<action>(bo, *batches);
     }
   }

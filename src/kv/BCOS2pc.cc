@@ -334,15 +334,19 @@ void BCOSTwoPhaseCommitter::commitSingleBatch(Backoffer &bo,
     log->warning("commitSingleBatch failed, " + std::string(e.what()) + ":" +
                  e.message());
     bo.backoff(boRegionMiss, e);
-    commit_ts = cluster->pd_client->getTS();
-    commitKeys(bo, convert(batch.keys));
+    if (isPrimary) {
+      commit_ts = cluster->pd_client->getTS();
+      commitKeys(bo, convert(batch.keys));
+    }
     return;
   }
   if (response->has_error()) {
     log->warning("commitSingleBatch failed, errors: " +
                  response->error().ShortDebugString());
-    throw Exception("meet errors: " + response->error().ShortDebugString(),
-                    LockError);
+    if (isPrimary) {
+      throw Exception("meet errors: " + response->error().ShortDebugString(),
+                      LockError);
+    }
   }
 
   commited = true;

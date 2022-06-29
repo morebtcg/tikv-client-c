@@ -112,21 +112,28 @@ public:
     // stop ttl_manager
     ttl_manager.close();
   }
-  void commitKeys() {
+
+  uint64_t commitKeys() { commitKeys(cluster->pd_client->getTS()); return commit_ts;}
+
+  void commitKeys(uint64_t commitTS) {
     Backoffer commit_bo(commitMaxBackoff);
     try {
-      commit_ts = cluster->pd_client->getTS();
+      commit_ts = commitTS;
       doActionOnKeys<ActionCommit>(commit_bo, keys);
       ttl_manager.close();
     } catch (Exception &e) {
-      if (!commited) {
+      auto isPrimaryBatch = mutations.count(primary_lock);
+      if (!commited && isPrimaryBatch) {
         // TODO: Rollback keys.
         rollbackKeys(commit_bo, keys);
         log->warning("commit failed, message:" + std::string(e.what()) + ":" +
                      e.message());
       }
-      log->warning("commit exception: " + e.displayText());
-      throw;
+      log->debug("commit exception: " + e.displayText());
+      if(isPrimaryBatch)
+      {
+        throw e;
+      }
     }
     log->debug("commitKeys finished, primary_lock: " +
                (mutations.count(primary_lock) ? mutations[primary_lock]
@@ -211,31 +218,17 @@ private:
       if constexpr (action == ActionCommit) {
         fiu_do_on("all commit fail", return );
       }
-      if(batches->size() > 0)
-      {
+      if (batches->size() > 0) {
         doActionOnBatches<action>(
             bo, std::vector<BatchKeys>(batches->begin(), batches->begin() + 1));
         batches =
             std::make_shared<BatchesType>(batches->begin() + 1, batches->end());
       }
     }
-    if (action != ActionCommit || !fiu_fail("rest commit fail")) {
+    if (!fiu_fail("rest commit fail")) {
+      //action != ActionCommit ||
       doActionOnBatches<action>(bo, *batches);
     }
-    // auto doActionOnBatchesEnd = std::chrono::system_clock::now();
-    // logStream.debug() << "doActionOnKeys finished, prepareGroupsTime(ms)="
-    //                   << std::chrono::duration_cast<std::chrono::milliseconds>(
-    //                          prepareGroupsEnd - start)
-    //                          .count()
-    //                   << ", prepareBatchesTime(ms)="
-    //                   << std::chrono::duration_cast<std::chrono::milliseconds>(
-    //                          prepareBatchesEnd - prepareGroupsEnd)
-    //                          .count()
-    //                   << ", doActionOnBatchesTime(ms)="
-    //                   << std::chrono::duration_cast<std::chrono::milliseconds>(
-    //                          doActionOnBatchesEnd - prepareBatchesEnd)
-    //                          .count()
-    //                   << std::endl;
   }
 
   template <Action action>
@@ -243,6 +236,7 @@ private:
     if constexpr (action == ActionPrewrite) {
       asyncPrewriteBatches(bo, batches);
     }
+#pragma omp parallel for
     for (const auto &batch : batches) {
       if constexpr (action == ActionRollback) {
         rollbackSingleBatch(bo, batch);

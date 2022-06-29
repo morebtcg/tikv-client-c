@@ -62,7 +62,7 @@ namespace
                 new Poco::PatternFormatter("%L%p|%Y-%m-%d %H:%M:%S.%i|%T-%I|[%s]%t"));
             formatter->setProperty("times", "local");
             Poco::AutoPtr<Poco::Channel> pChannel(new Poco::FormattingChannel(formatter, fileChannel));
-            Poco::Logger::root().setLevel(Poco::Message::PRIO_DEBUG);  // PRIO_TRACE
+            Poco::Logger::root().setLevel(Poco::Message::PRIO_TRACE);  // PRIO_TRACE PRIO_DEBUG
             Poco::Logger::root().setChannel(pChannel);
         }
         void clean()
@@ -175,7 +175,7 @@ namespace
                 committer2.prewriteKeys(start_ts);
                 auto prewriteKeys1 = std::chrono::system_clock::now();
                 // scheduler commit
-                committer.commitKeys();
+                auto commitTS = committer.commitKeys();
                 auto commitKeysEnd = std::chrono::system_clock::now();
                 auto commit = std::chrono::system_clock::now();
                 std::cout<< i << ",prewrite0(ms)="<< std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -188,7 +188,7 @@ namespace
                              .count()<< ",commit(ms)="<< std::chrono::duration_cast<std::chrono::milliseconds>(
                              commitKeysEnd - prewriteKeys1)
                              .count()<<std::endl;
-                // committer2.commitKeys();
+                committer2.commitKeys(commitTS);
 
                 Snapshot snap(test_cluster.get());
 

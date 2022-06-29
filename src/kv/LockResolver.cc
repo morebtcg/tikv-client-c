@@ -277,6 +277,7 @@ void LockResolver::resolveLocksCommitted(Backoffer &bo,uint64_t startTS, uint64_
     catch (Exception & e)
     {
         bo.backoff(boRegionMiss, e);
+        return;
     }
     if (response->has_error())
     {

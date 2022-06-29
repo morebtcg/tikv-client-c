@@ -259,6 +259,31 @@ void LockResolver::resolveLock(Backoffer & bo, LockPtr lock, TxnStatus & status,
     }
 }
 
+void LockResolver::resolveLocksCommitted(Backoffer &bo,uint64_t startTS, uint64_t commitTS, const std::vector<std::string_view>& keys, RegionVerID region)
+{
+    auto req = std::make_shared<::kvrpcpb::ResolveLockRequest>();
+    req->set_start_version(startTS);
+    req->set_commit_version(commitTS);
+    for(auto& key :keys)
+    {
+        req->add_keys(std::string(key));
+    }
+    RegionClient client(cluster, region);
+    std::shared_ptr<kvrpcpb::ResolveLockResponse> response;
+    try
+    {
+        response = client.sendReqToRegion(bo, req);
+    }
+    catch (Exception & e)
+    {
+        bo.backoff(boRegionMiss, e);
+    }
+    if (response->has_error())
+    {
+        log->warning("resolveLockCommitted unexpected err: " + response->error().ShortDebugString());
+    }
+}
+
 void LockResolver::resolvePessimisticLock(Backoffer & bo, LockPtr lock, std::unordered_set<RegionVerID> & set)
 {
     for (;;)

@@ -214,6 +214,7 @@ public:
         Backoffer & bo, uint64_t caller_start_ts, std::vector<LockPtr> & locks, std::vector<uint64_t> & pushed, bool for_write);
 
     int64_t resolveLocksForWrite(Backoffer & bo, uint64_t caller_start_ts, std::vector<LockPtr> & locks);
+    void resolveLocksCommitted(Backoffer & bo,uint64_t startTS, uint64_t commitTS, const std::vector<std::string_view>& keys, RegionVerID region);
 
 private:
     void saveResolved(uint64_t txn_id, const TxnStatus & status)

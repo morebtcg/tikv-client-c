@@ -222,16 +222,18 @@ private:
       if constexpr (action == ActionCommit) {
         fiu_do_on("all commit fail", return );
       }
-      if (batches->size() > 0) {
+      if (batches->size() > 0 && isPrimary) {
         doActionOnBatches<action>(
             bo, std::vector<BatchKeys>(batches->begin(), batches->begin() + 1));
         batches =
             std::make_shared<BatchesType>(batches->begin() + 1, batches->end());
       }
     }
-    if (!fiu_fail("rest commit fail")) {
-      // action != ActionCommit ||
+    if (action != ActionCommit || !fiu_fail("rest commit fail")) {
       doActionOnBatches<action>(bo, *batches);
+    }
+    if (action == ActionCommit) {
+      resolveLocks(bo, *batches);
     }
   }
 
@@ -263,6 +265,14 @@ private:
   void rollbackSingleBatch(Backoffer &bo, const BatchKeys &batch);
 
   void commitSingleBatch(Backoffer &bo, const BatchKeys &batch);
+
+  void resolveLocks(Backoffer &bo, const std::vector<BatchKeys> &batches) {
+#pragma omp parallel for
+    for (const auto &batch : batches) {
+      cluster->lock_resolver->resolveLocksCommitted(bo, start_ts, commit_ts,
+                                                    batch.keys, batch.region);
+    }
+  }
 };
 
 } // namespace kv

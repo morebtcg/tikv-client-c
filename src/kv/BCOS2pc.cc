@@ -175,6 +175,7 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
                          std::string(e.what()) + ":" + e.message());
             // Region Error.
             bo.backoff(boRegionMiss, e);
+            cluster->region_cache->getRegionByID(bo, batches[index].region);
             prewriteKeys(bo, convert(batches[index].keys));
           }
           log->trace("prewriteSingleBatch finished,index=" + to_string(index));
@@ -306,6 +307,7 @@ void BCOSTwoPhaseCommitter::rollbackSingleBatch(Backoffer &bo,
                  std::string(e.what()) + ":" + e.message() +
                  ", batch.size=" + to_string(batch.keys.size()));
     bo.backoff(boRegionMiss, e);
+    cluster->region_cache->getRegionByID(bo, batch.region);
     rollbackKeys(bo, convert(batch.keys));
     return;
   }
@@ -334,6 +336,7 @@ void BCOSTwoPhaseCommitter::commitSingleBatch(Backoffer &bo,
     log->warning("commitSingleBatch failed, " + std::string(e.what()) + ":" +
                  e.message());
     bo.backoff(boRegionMiss, e);
+    cluster->region_cache->getRegionByID(bo, batch.region);
     if (isPrimary) {
       commit_ts = cluster->pd_client->getTS();
       commitKeys(bo, convert(batch.keys));

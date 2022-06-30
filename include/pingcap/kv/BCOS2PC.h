@@ -91,14 +91,9 @@ public:
     try {
       prewriteKeys(prewrite_bo, keys);
     } catch (Exception &e) {
-      if (!commited) {
-        // TODO: Rollback keys.
-        log->warning("prewrite failed, message:" + std::string(e.what()) + ":" +
-                     e.message());
-        rollbackKeys(prewrite_bo, keys);
-      }
-      log->warning("write commit exception: " + e.displayText());
-      throw;
+        log->warning("prewrite exception, message:" + e.displayText());
+        // retry
+        prewriteKeys(prewrite_bo, keys);
     }
   }
   PreWriteResult prewriteKeys() {

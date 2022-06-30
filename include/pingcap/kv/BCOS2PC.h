@@ -262,7 +262,7 @@ private:
   void commitSingleBatch(Backoffer &bo, const BatchKeys &batch);
 
   void resolveLocks(Backoffer &bo, const std::vector<BatchKeys> &batches) {
-#pragma omp parallel for
+// #pragma omp parallel for
     for (const auto &batch : batches) {
       cluster->lock_resolver->resolveLocksCommitted(bo, start_ts, commit_ts,
                                                     batch.keys, batch.region);

@@ -232,9 +232,9 @@ private:
     if (action != ActionCommit || !fiu_fail("rest commit fail")) {
       doActionOnBatches<action>(bo, *batches);
     }
-    if (action == ActionCommit) {
-      resolveLocks(bo, *batches);
-    }
+    // if (action == ActionCommit) {
+    //   resolveLocks(bo, *batches);
+    // }
   }
 
   template <Action action>
@@ -242,7 +242,7 @@ private:
     if constexpr (action == ActionPrewrite) {
       asyncPrewriteBatches(bo, batches);
     }
-#pragma omp parallel for
+// #pragma omp parallel for
     for (const auto &batch : batches) {
       if constexpr (action == ActionRollback) {
         rollbackSingleBatch(bo, batch);

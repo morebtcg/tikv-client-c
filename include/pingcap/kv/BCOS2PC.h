@@ -126,7 +126,8 @@ public:
     } catch (Exception &e) {
       if (!commited && isPrimary) {
         // TODO: Rollback keys.
-        rollbackKeys(commit_bo, keys);
+
+        // rollbackKeys(commit_bo, keys);
         log->warning("commit failed, message:" + std::string(e.what()) + ":" +
                      e.message());
       }
@@ -210,7 +211,7 @@ private:
     if (retry > 20) {
       logStream.error() << "exceed max retry count 20, action=" << action
                         << std::endl;
-      throw Exception("exceed max retry count 20, action(0:p,1:c,3:r) is" +
+      throw Exception("exceed max retry count 20, action(0:p,1:c,3:r)=" +
                       std::to_string(action));
     }
     auto groups = m_groups;

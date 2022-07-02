@@ -164,20 +164,20 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
 
     coroutines.emplace_back(
         [&, index = i](coro_t::pull_type &in) {
-          log->trace("prewriteSingleBatch start,index=" + to_string(index));
+          log->trace("asyncPrewriteBatches start,index=" + to_string(index));
           try {
             RegionClient region_client(cluster, batches[index].region);
             responses[index] = region_client.asyncSendReqToRegion(
                 bo, requests[index], &cq, in);
           } catch (Exception &e) {
-            log->warning("prewriteSingleBatch exception, " +
+            log->warning("asyncPrewriteBatches exception, " +
                          std::string(e.what()) + ":" + e.message());
             // Region Error.
             bo.backoff(boRegionMiss, e);
             cluster->region_cache->getRegionByID(bo, batches[index].region);
             prewriteKeys(bo, convert(batches[index].keys));
           }
-          log->trace("prewriteSingleBatch finished,index=" + to_string(index));
+          log->trace("asyncPrewriteBatches finished,index=" + to_string(index));
 
           for (;;) {
             in();
@@ -198,7 +198,7 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
   }
   auto sendEnd = std::chrono::system_clock::now();
   log->debug(
-      "prewriteSingleBatch requests sent, batches.size=" +
+      "asyncPrewriteBatches requests sent, batches.size=" +
       to_string(batches.size()) + ", primary_lock=" +
       (mutations.count(primary_lock) ? mutations[primary_lock] : primary_lock));
   for (size_t i = 0; i < batches.size(); ++i) { // after finish
@@ -212,11 +212,11 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
     // }
   }
   auto receiveEnd = std::chrono::system_clock::now();
-  log->trace("prewriteSingleBatch responses received");
+  log->trace("asyncPrewriteBatches responses received");
   for (size_t i = 0; i < batches.size(); ++i) {
     auto response = responses[i];
     if (!response) {
-      log->warning("prewriteSingleBatch skip empty response, index=" +
+      log->warning("asyncPrewriteBatches skip empty response, index=" +
                    to_string(i));
       continue;
     }
@@ -226,7 +226,7 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
       for (int j = 0; j < size; j++) {
         const auto &err = response->errors(j);
         if (err.has_already_exist()) {
-          log->warning("prewriteSingleBatch key already exist error, key : " +
+          log->warning("asyncPrewriteBatches key already exist error, key : " +
                        Redact::keyToDebugString(err.already_exist().key()) +
                        " has existed.");
           throw Exception(
@@ -234,7 +234,7 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
                   " has existed.",
               LogicalError);
         }
-        log->trace("prewriteSingleBatch failed,index=" + to_string(i) +
+        log->trace("asyncPrewriteBatches failed,index=" + to_string(i) +
                    ",error:" + err.ShortDebugString());
         auto lock = extractLockFromKeyErr(err);
         locks.push_back(lock);
@@ -247,7 +247,7 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
             Exception("2PC prewrite locked: " + std::to_string(locks.size()),
                       LockError));
       }
-      log->debug("prewriteSingleBatch retry batch,index=" + to_string(i));
+      log->debug("asyncPrewriteBatches retry batch,index=" + to_string(i));
       // retry
       coroutines[i](i);
       // size_t *id = nullptr;
@@ -272,7 +272,7 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
                              std::chrono::system_clock::now() - receiveEnd)
                              .count();
   if (processTimeCost > 10) {
-    logStream.debug() << "prewriteSingleBatch finished, batches.size="
+    logStream.debug() << "asyncPrewriteBatches finished, batches.size="
                       << to_string(batches.size()) + ", primary_lock="
                       << (mutations.count(primary_lock)
                               ? mutations[primary_lock]

@@ -52,6 +52,7 @@ private:
 
   int lock_ttl = 0;
   int retry = 0;
+  int maxRetry = 20;
 
   std::string primary_lock;
   bool isPrimary = false;
@@ -82,7 +83,8 @@ private:
 public:
   BCOSTwoPhaseCommitter(
       Cluster *_cluster, const std::string_view &_primary_lock,
-      std::unordered_map<std::string, std::string> &&_mutations);
+      std::unordered_map<std::string, std::string> &&_mutations,
+      int32_t _maxRetry = 100);
 
   void prewriteKeys(uint64_t _start_ts) {
     start_time = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -105,6 +107,7 @@ public:
     return PreWriteResult{start_ts, primary_lock};
   }
   void rollback() {
+    retry = 0;
     Backoffer bo(prewriteMaxBackoff);
     doActionOnKeys<ActionRollback>(bo, keys);
     // stop ttl_manager
@@ -112,12 +115,14 @@ public:
   }
 
   uint64_t commitKeys() {
+    retry = 0;
     isPrimary = true;
     commitKeys(cluster->pd_client->getTS());
     return commit_ts;
   }
 
   void commitKeys(uint64_t commitTS) {
+    retry = 0;
     Backoffer commit_bo(commitMaxBackoff);
     try {
       commit_ts = commitTS;
@@ -207,19 +212,21 @@ private:
   template <Action action>
   void doActionOnKeys(Backoffer &bo, const std::vector<std::string> &cur_keys) {
     // auto start = std::chrono::system_clock::now();
-    ++retry;
-    if (retry > 20) {
-      logStream.error() << "exceed max retry count 20, action=" << action
-                        << std::endl;
-      throw Exception("exceed max retry count 20, action(0:p,1:c,3:r)=" +
-                      std::to_string(action));
-    }
     auto groups = m_groups;
     // if (cur_keys.size() != keys.size()) {
     groups = prepareGroups(cur_keys);
     // }
     // auto prepareGroupsEnd = std::chrono::system_clock::now();
     auto batches = prepareBatches<action>(groups);
+    ++retry;
+    if (retry > (int32_t)batches->size() + maxRetry) {
+      logStream.error() << "exceed max retry count "
+                        << batches->size() + maxRetry << ", action(0:p,1:c,3:r)=" << action
+                        << std::endl;
+      throw Exception("exceed max retry count " +
+                      std::to_string(batches->size() + maxRetry) +
+                      ", action(0:p,1:c,3:r)=" + std::to_string(action));
+    }
     // auto prepareBatchesEnd = std::chrono::system_clock::now();
 
     if constexpr (action == ActionCommit || action == ActionCleanUp) {

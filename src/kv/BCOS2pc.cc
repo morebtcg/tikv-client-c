@@ -18,8 +18,9 @@ vector<string> convert(const vector<string_view> &o) {
 }
 BCOSTwoPhaseCommitter::BCOSTwoPhaseCommitter(
     Cluster *_cluster, const std::string_view &_primary_lock,
-    std::unordered_map<std::string, std::string> &&_mutations)
-    : mutations(std::move(_mutations)), cluster(_cluster),
+    std::unordered_map<std::string, std::string> &&_mutations,
+    int32_t _maxRetry)
+    : mutations(std::move(_mutations)), cluster(_cluster), maxRetry(_maxRetry),
       log(&Logger::get("pingcap.bcos2pc")), logStream(*log) {
   start_ts = cluster->pd_client->getTS();
   start_time = std::chrono::duration_cast<std::chrono::milliseconds>(

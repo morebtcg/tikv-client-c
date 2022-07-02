@@ -51,6 +51,7 @@ private:
   uint64_t txn_size = 0;
 
   int lock_ttl = 0;
+  int retry = 0;
 
   std::string primary_lock;
   bool isPrimary = false;
@@ -91,9 +92,9 @@ public:
     try {
       prewriteKeys(prewrite_bo, keys);
     } catch (Exception &e) {
-        log->warning("prewrite exception, message:" + e.displayText());
-        // retry
-        prewriteKeys(prewrite_bo, keys);
+      log->warning("prewrite exception, message:" + e.displayText());
+      // retry
+      prewriteKeys(prewrite_bo, keys);
     }
   }
   PreWriteResult prewriteKeys() {
@@ -205,10 +206,17 @@ private:
   template <Action action>
   void doActionOnKeys(Backoffer &bo, const std::vector<std::string> &cur_keys) {
     // auto start = std::chrono::system_clock::now();
-    auto groups = m_groups;
-    if (cur_keys.size() != keys.size()) {
-      groups = prepareGroups(cur_keys);
+    ++retry;
+    if (retry > 20) {
+      logStream.error() << "exceed max retry count 20, action=" << action
+                        << std::endl;
+      throw Exception("exceed max retry count 20, action(0:p,1:c,3:r) is" +
+                      std::to_string(action));
     }
+    auto groups = m_groups;
+    // if (cur_keys.size() != keys.size()) {
+    groups = prepareGroups(cur_keys);
+    // }
     // auto prepareGroupsEnd = std::chrono::system_clock::now();
     auto batches = prepareBatches<action>(groups);
     // auto prepareBatchesEnd = std::chrono::system_clock::now();
@@ -237,7 +245,7 @@ private:
     if constexpr (action == ActionPrewrite) {
       asyncPrewriteBatches(bo, batches);
     }
-// #pragma omp parallel for
+    // #pragma omp parallel for
     for (const auto &batch : batches) {
       if constexpr (action == ActionRollback) {
         rollbackSingleBatch(bo, batch);
@@ -262,7 +270,7 @@ private:
   void commitSingleBatch(Backoffer &bo, const BatchKeys &batch);
 
   void resolveLocks(Backoffer &bo, const std::vector<BatchKeys> &batches) {
-// #pragma omp parallel for
+    // #pragma omp parallel for
     for (const auto &batch : batches) {
       cluster->lock_resolver->resolveLocksCommitted(bo, start_ts, commit_ts,
                                                     batch.keys, batch.region);

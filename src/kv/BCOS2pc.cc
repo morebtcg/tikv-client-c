@@ -137,8 +137,7 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
   grpc::CompletionQueue cq;
   for (size_t i = 0; i < batches.size(); ++i) {
     auto &batch = batches[i];
-    region_txn_size[batch.region.id] = batch.keys.size();
-    uint64_t batch_txn_size = region_txn_size[batch.region.id];
+    uint64_t batch_txn_size = batch.keys.size();
     requests[i] = std::make_shared<kvrpcpb::PrewriteRequest>();
     auto &req = requests[i];
 

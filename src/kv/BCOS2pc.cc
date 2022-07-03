@@ -1,3 +1,4 @@
+#include <boost/context/fixedsize_stack.hpp>
 #include <pingcap/RedactHelpers.h>
 #include <pingcap/kv/BCOS2PC.h>
 #include <pingcap/kv/RegionClient.h>
@@ -19,9 +20,10 @@ vector<string> convert(const vector<string_view> &o) {
 BCOSTwoPhaseCommitter::BCOSTwoPhaseCommitter(
     Cluster *_cluster, const std::string_view &_primary_lock,
     std::unordered_map<std::string, std::string> &&_mutations,
-    int32_t _maxRetry)
+    size_t _coroutineStack, int32_t _maxRetry)
     : mutations(std::move(_mutations)), cluster(_cluster), maxRetry(_maxRetry),
-      log(&Logger::get("pingcap.bcos2pc")), logStream(*log) {
+      coroutineStack(_coroutineStack), log(&Logger::get("pingcap.bcos2pc")),
+      logStream(*log) {
   start_ts = cluster->pd_client->getTS();
   start_time = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::system_clock::now().time_since_epoch());
@@ -164,6 +166,7 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
               { req->set_max_commit_ts(min_commit_ts - 1); });
 
     coroutines.emplace_back(
+        boost::coroutines2::fixedsize_stack(coroutineStack),
         [&, index = i](coro_t::pull_type &in) {
           log->trace("asyncPrewriteBatches start,index=" + to_string(index));
           try {

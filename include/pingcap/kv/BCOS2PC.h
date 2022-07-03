@@ -53,6 +53,7 @@ private:
   int lock_ttl = 0;
   int retry = 0;
   int maxRetry = 20;
+  size_t coroutineStack;
 
   std::string primary_lock;
   bool isPrimary = false;
@@ -84,7 +85,7 @@ public:
   BCOSTwoPhaseCommitter(
       Cluster *_cluster, const std::string_view &_primary_lock,
       std::unordered_map<std::string, std::string> &&_mutations,
-      int32_t _maxRetry = 100);
+      size_t _coroutineStack = 32768, int32_t _maxRetry = 100);
 
   void prewriteKeys(uint64_t _start_ts) {
     start_time = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -180,7 +181,6 @@ private:
           size += key.size();
           if constexpr (action == ActionPrewrite)
             size += mutations[key].size();
-
           sub_keys.push_back(key);
           if (key == primary_lock) {
             primary_idx = batches->size();
@@ -221,8 +221,8 @@ private:
     ++retry;
     if (retry > (int32_t)batches->size() + maxRetry) {
       logStream.error() << "exceed max retry count "
-                        << batches->size() + maxRetry << ", action(0:p,1:c,3:r)=" << action
-                        << std::endl;
+                        << batches->size() + maxRetry
+                        << ", action(0:p,1:c,3:r)=" << action << std::endl;
       throw Exception("exceed max retry count " +
                       std::to_string(batches->size() + maxRetry) +
                       ", action(0:p,1:c,3:r)=" + std::to_string(action));

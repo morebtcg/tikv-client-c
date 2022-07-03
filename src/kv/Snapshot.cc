@@ -124,7 +124,7 @@ std::map<std::string,std::string> Snapshot::BatchGet(const std::vector<std::stri
                 bo.backoffWithMaxSleep(
                     boTxnLockFast, before_expired, Exception("key error : " + response->error().ShortDebugString(), LockError));
             }
-            log->debug("Snapshot BatchGet response error, " + response->error().ShortDebugString());
+            log->warning("Snapshot BatchGet response error, " + response->error().ShortDebugString());
             auto ret = BatchGet(group.second);
             result.merge(ret);
             continue;

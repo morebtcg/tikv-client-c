@@ -72,7 +72,7 @@ std::string Snapshot::Get(Backoffer & bo, const std::string & key)
 
 std::map<std::string,std::string> Snapshot::BatchGet(const std::vector<std::string> & keys)
 {
-    std::map<std::string,std::string> result;
+    std::map<std::string, std::string> result;
     Backoffer bo(GetMaxBackoff);
     auto [groups, first_region] = cluster->region_cache->groupKeysByRegion(bo, keys);
     std::ignore = first_region;
@@ -108,6 +108,14 @@ std::map<std::string,std::string> Snapshot::BatchGet(const std::vector<std::stri
             result.merge(ret);
             continue;
         }
+        if(response->has_region_error())
+        {
+            log->warning("Snapshot BatchGet response has_region_error: " + response->region_error().ShortDebugString());
+            cluster->region_cache->dropRegion(group.first);
+            auto ret = BatchGet(group.second);
+            result.merge(ret);
+            continue;
+        }
         if (response->has_error())
         {
             auto lock = extractLockFromKeyErr(response->error());
@@ -124,7 +132,8 @@ std::map<std::string,std::string> Snapshot::BatchGet(const std::vector<std::stri
                 bo.backoffWithMaxSleep(
                     boTxnLockFast, before_expired, Exception("key error : " + response->error().ShortDebugString(), LockError));
             }
-            log->warning("Snapshot BatchGet response error, " + response->error().ShortDebugString());
+            log->warning("Snapshot BatchGet response error: " + response->error().ShortDebugString());
+            cluster->region_cache->dropRegion(group.first);
             auto ret = BatchGet(group.second);
             result.merge(ret);
             continue;

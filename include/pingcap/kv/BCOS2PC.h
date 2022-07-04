@@ -260,8 +260,7 @@ private:
       }
       // else if constexpr (action == ActionPrewrite)
       // {
-      //     region_txn_size[batch.region.id] = batch.keys.size();
-      //     prewriteSingleBatch(bo, batch);
+      //   prewriteSingleBatch(bo, batch);
       // }
       else if constexpr (action == ActionCommit) {
         commitSingleBatch(bo, batch);

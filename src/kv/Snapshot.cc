@@ -131,7 +131,7 @@ std::map<std::string,std::string> Snapshot::BatchGet(const std::vector<std::stri
         }
         std::vector<std::string> lockedKeys;
         std::vector<LockPtr> locks;
-        for(size_t i =0; i<response->pairs().size() ;++i)
+        for(int i = 0; i < response->pairs().size() ; ++i)
         // for(auto & pair :response->pairs())
         {
             auto & pair = response->pairs()[i];

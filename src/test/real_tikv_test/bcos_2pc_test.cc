@@ -210,6 +210,62 @@ namespace
         }
     }
 
+    TEST_F(TestWith2PCRealTiKV, bcos_snapshot_batchGet)
+    {
+        // Prewrite
+        {
+            clean();
+            size_t commitSize = 100000;
+            size_t loop = 100;
+
+            for(size_t i = 0; i < loop; ++i)
+            {
+                srand (time(NULL));
+
+                // scheduler prewrite
+                std::unordered_map<std::string, std::string> mutations;
+                mutations["a"] = std::to_string(rand());
+                mutations["b"] = std::to_string(rand());
+                mutations["c"] = std::to_string(rand());
+
+                std::unordered_map<std::string, std::string> mutations2;
+                std::vector<std::string> keys, values;
+                keys.reserve(commitSize);
+                values.reserve(commitSize);
+                for(size_t j = 0; j < commitSize; ++j)
+                {
+                    keys.push_back("key________________________________" +  std::to_string(rand()));
+                    std::string value(1024, 'a');
+                    value += "value________________________________" + std::to_string(rand());
+                    values.push_back(std::move(value));
+                }
+                auto start = std::chrono::system_clock::now();
+                Txn txn(test_cluster.get());
+                for(size_t j = 0; j < commitSize; ++j)
+                {
+                    txn.set(keys[i], values[i]);
+                }
+
+                txn.commit();
+                auto commit = std::chrono::system_clock::now();
+                std::cout<< i << ",commit(ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(
+                             commit - start)
+                             .count() << std::endl;
+                Snapshot snap(test_cluster.get());
+
+                auto result2 = snap.BatchGet(keys);
+                for(size_t j = 0; j< commitSize; ++j)
+                {
+                    if(result2[keys[i]] != values[i])
+                    {
+                        std::cout<<"failed key="<<keys[i]<<std::endl;
+                    }
+                    ASSERT_EQ(result2[keys[i]], values[i]);
+                }
+            }
+        }
+    }
+
     TEST_F(TestWith2PCRealTiKV, testPrewriteRollback)
     {
         // Prewrite

@@ -117,7 +117,9 @@ void BCOSTwoPhaseCommitter::prewriteSingleBatch(Backoffer &bo,
         // After writing the primary key, if the size of the transaction is
         // large than 32M, start the ttlManager. The ttlManager will be closed
         // in tikvTxn.Commit().
-        ttl_manager.run(shared_from_this());
+        if (txn_size > ttlManagerRunThreshold) {
+          ttl_manager.run(shared_from_this());
+        }
       }
     }
     return;
@@ -270,7 +272,9 @@ void BCOSTwoPhaseCommitter::asyncPrewriteBatches(
         // After writing the primary key, if the size of the transaction is
         // large than 32M, start the ttlManager. The ttlManager will be closed
         // in tikvTxn.Commit().
-        ttl_manager.run(shared_from_this());
+        if (txn_size > ttlManagerRunThreshold) {
+          ttl_manager.run(shared_from_this());
+        }
       }
     }
   }
@@ -317,7 +321,7 @@ void BCOSTwoPhaseCommitter::rollbackSingleBatch(Backoffer &bo,
     return;
   }
   if (response->has_region_error()) {
-    log->warning("commitSingleBatch failed, region_error: " +
+    log->warning("rollbackSingleBatch failed, region_error: " +
                  response->region_error().ShortDebugString());
     cluster->region_cache->dropRegion(batch.region);
     rollbackKeys(bo, convert(batch.keys));
@@ -345,7 +349,7 @@ void BCOSTwoPhaseCommitter::commitSingleBatch(Backoffer &bo,
   try {
     response = region_client.sendReqToRegion(bo, req);
   } catch (Exception &e) {
-    log->warning("commitSingleBatch failed, " + std::string(e.what()) + ":" +
+    log->warning("commitSingleBatch Exception, " + std::string(e.what()) + ":" +
                  e.message());
     bo.backoff(boRegionMiss, e);
     cluster->region_cache->dropRegion(batch.region);

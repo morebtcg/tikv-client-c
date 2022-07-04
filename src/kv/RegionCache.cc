@@ -2,6 +2,7 @@
 #include <pingcap/kv/RegionCache.h>
 #include <pingcap/pd/CodecClient.h>
 #include <pingcap/RedactHelpers.h>
+#include <sstream>
 
 namespace pingcap
 {
@@ -254,6 +255,12 @@ void RegionCache::dropRegion(const RegionVerID & region_id)
 {
     std::unique_lock<std::shared_mutex> lock(region_mutex);
     log->information("try drop region " + region_id.toString());
+    // std::stringstream ss;
+    // for(auto & region :regions)
+    // {
+    //     ss << region.first.toString();
+    // }
+    // log->debug("all regions: " + ss.str());
     auto iter_by_id = regions.find(region_id);
     if (iter_by_id != regions.end())
     {
@@ -261,6 +268,7 @@ void RegionCache::dropRegion(const RegionVerID & region_id)
         if (iter_by_key != regions_map.end())
         {
             regions_map.erase(iter_by_key);
+            log->information("drop region in regions_map " + std::to_string(region_id.id) + " success");
         }
         /// record the work flash index when drop region
         region_last_work_flash_index[region_id.id] = iter_by_id->second->work_tiflash_peer_idx.load();

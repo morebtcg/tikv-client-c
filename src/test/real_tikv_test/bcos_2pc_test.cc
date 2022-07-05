@@ -62,7 +62,7 @@ namespace
                 new Poco::PatternFormatter("%L%p|%Y-%m-%d %H:%M:%S.%i|%T-%I|[%s]%t"));
             formatter->setProperty("times", "local");
             Poco::AutoPtr<Poco::Channel> pChannel(new Poco::FormattingChannel(formatter, fileChannel));
-            Poco::Logger::root().setLevel(Poco::Message::PRIO_TRACE);  // PRIO_TRACE PRIO_DEBUG
+            Poco::Logger::root().setLevel(Poco::Message::PRIO_DEBUG);  // PRIO_TRACE PRIO_DEBUG
             Poco::Logger::root().setChannel(pChannel);
         }
         void clean()
@@ -215,7 +215,7 @@ namespace
         // Prewrite
         {
             clean();
-            size_t commitSize = 100000;
+            size_t commitSize = 10000;
             size_t loop = 100;
 
             for(size_t i = 0; i < loop; ++i)
@@ -232,21 +232,18 @@ namespace
                 std::vector<std::string> keys, values;
                 keys.reserve(commitSize);
                 values.reserve(commitSize);
+                auto start = std::chrono::system_clock::now();
                 for(size_t j = 0; j < commitSize; ++j)
                 {
                     keys.push_back("key________________________________" +  std::to_string(rand()));
                     std::string value(1024, 'a');
                     value += "value________________________________" + std::to_string(rand());
                     values.push_back(std::move(value));
-                }
-                auto start = std::chrono::system_clock::now();
-                Txn txn(test_cluster.get());
-                for(size_t j = 0; j < commitSize; ++j)
-                {
+                    Txn txn(test_cluster.get());
                     txn.set(keys[i], values[i]);
+                    txn.commit();
                 }
 
-                txn.commit();
                 auto commit = std::chrono::system_clock::now();
                 std::cout<< i << ",commit(ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(
                              commit - start)
@@ -262,6 +259,64 @@ namespace
                     }
                     ASSERT_EQ(result2[keys[i]], values[i]);
                 }
+            }
+        }
+    }
+
+    TEST_F(TestWith2PCRealTiKV, bcos_raw_put)
+    {
+        // Prewrite
+        {
+            clean();
+            size_t commitSize = 10000;
+            size_t loop = 100;
+
+            for(size_t i = 0; i < loop; ++i)
+            {
+                srand (time(NULL));
+
+                // scheduler prewrite
+                std::unordered_map<std::string, std::string> mutations;
+                mutations["a"] = std::to_string(rand());
+                mutations["b"] = std::to_string(rand());
+                mutations["c"] = std::to_string(rand());
+
+                std::unordered_map<std::string, std::string> mutations2;
+                std::vector<std::string> keys, values;
+                keys.reserve(commitSize);
+                values.reserve(commitSize);
+                auto start = std::chrono::system_clock::now();
+                RawKVClient raw(test_cluster.get());
+                try {
+                    for(size_t j = 0; j < commitSize; ++j)
+                    {
+                        keys.push_back("key________________________________" +  std::to_string(rand()));
+                        std::string value(1024, 'a');
+                        value += "value________________________________" + std::to_string(rand());
+                        values.push_back(std::move(value));
+                        raw.put(keys[i], values[i]);
+                    }
+                } catch (Exception &e) {
+                 std::cout<< "Exception:"<<e.message()<<std::endl;
+                 return;
+                }
+
+                auto commit = std::chrono::system_clock::now();
+                std::cout<< i << ",commit(ms)=" << std::chrono::duration_cast<std::chrono::milliseconds>(
+                             commit - start)
+                             .count() << std::endl;
+                // FIXME: raw kv could not read tx data
+
+                // Snapshot snap(test_cluster.get());
+                // auto result2 = snap.BatchGet(keys);
+                // for(size_t j = 0; j< commitSize; ++j)
+                // {
+                //     if(result2[keys[i]] != values[i])
+                //     {
+                //         std::cout<<"failed key="<<keys[i]<<std::endl;
+                //     }
+                //     ASSERT_EQ(result2[keys[i]], values[i]);
+                // }
             }
         }
     }

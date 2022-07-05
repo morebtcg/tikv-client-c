@@ -58,6 +58,12 @@ RPCContextPtr RegionCache::getRPCContext(Backoffer & bo, const RegionVerID & id,
 RegionPtr RegionCache::getRegionByIDFromCache(const RegionVerID & id)
 {
     std::shared_lock<std::shared_mutex> lock(region_mutex);
+    // std::stringstream ss;
+    // for(auto & region :regions)
+    // {
+    //     ss << region.first.toString();
+    // }
+    // log->information("getRegionByIDFromCache regions: " + ss.str());
     auto it = regions.find(id);
     if (it == regions.end())
         return nullptr;
@@ -224,6 +230,13 @@ Store RegionCache::getStore(Backoffer & bo, uint64_t id)
 RegionPtr RegionCache::searchCachedRegion(const std::string & key)
 {
     std::shared_lock<std::shared_mutex> lock(region_mutex);
+    // std::stringstream ss;
+    // for(auto & region :regions)
+    // {
+    //     ss << region.first.toString();
+    // }
+    // log->information("searchCachedRegion regions: " + ss.str());
+
     auto it = regions_map.upper_bound(key);
     if (it != regions_map.end() && it->second->contains(key))
     {
@@ -242,6 +255,13 @@ void RegionCache::insertRegionToCache(RegionPtr region)
     std::unique_lock<std::shared_mutex> lock(region_mutex);
     regions_map[region->endKey()] = region;
     regions[region->verID()] = region;
+    // std::stringstream ss;
+    // for(auto & region :regions)
+    // {
+    //     ss << region.first.toString();
+    // }
+    // log->information("insertRegionToCache regions: " + ss.str());
+
     auto it = region_last_work_flash_index.find(region->meta.id());
     if (it != region_last_work_flash_index.end())
     {
@@ -260,7 +280,7 @@ void RegionCache::dropRegion(const RegionVerID & region_id)
     // {
     //     ss << region.first.toString();
     // }
-    // log->debug("all regions: " + ss.str());
+    // log->debug("dropRegion regions: " + ss.str());
     auto iter_by_id = regions.find(region_id);
     if (iter_by_id != regions.end())
     {

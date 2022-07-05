@@ -285,5 +285,18 @@ private:
   }
 };
 
+struct RawKVClient {
+  RawKVClient(Cluster *_cluster, int _maxRetry = 20)
+      : cluster(_cluster), log(&Logger::get("bcos.rawkv")),
+        m_maxRetry(_maxRetry) {}
+
+  void put(const std::string_view &key, const std::string_view &value);
+  // void batchPut();
+  Cluster *cluster;
+  Logger *log;
+  int m_retry = 0;
+  int m_maxRetry;
+};
+
 } // namespace kv
 } // namespace pingcap

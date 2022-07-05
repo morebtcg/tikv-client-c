@@ -36,9 +36,9 @@ TwoPhaseCommitter::TwoPhaseCommitter(Txn * txn, bool _use_async_commit)
   : start_time(txn->start_time), use_async_commit(_use_async_commit), log(&Logger::get("pingcap.tikv"))
 {
     commited = false;
-    txn->walkBuffer([&](const std::string & key, const std::string & value) {
-        keys.push_back(key);
-        mutations.emplace(key, value);
+    txn->walkBuffer([&](std::string key, std::string value) {
+        keys.emplace_back(key);
+        mutations.emplace(std::move(key), std::move(value));
     });
     cluster = txn->cluster;
     start_ts = txn->start_ts;

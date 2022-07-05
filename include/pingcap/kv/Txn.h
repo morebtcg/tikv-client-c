@@ -57,11 +57,11 @@ struct Txn
         return std::make_pair(value, true);
     }
 
-    void walkBuffer(std::function<void(const std::string &, const std::string &)> foo)
+    void walkBuffer(std::function<void(std::string, std::string)> foo)
     {
         for (auto it = buffer.begin(); it != buffer.end(); it++)
         {
-            foo(it->first, it->second);
+            foo(it->first, std::move(it->second));
         }
     }
 };

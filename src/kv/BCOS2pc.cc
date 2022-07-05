@@ -22,7 +22,7 @@ BCOSTwoPhaseCommitter::BCOSTwoPhaseCommitter(
     std::unordered_map<std::string, std::string> &&_mutations,
     size_t _coroutineStack, int32_t _maxRetry)
     : mutations(std::move(_mutations)), cluster(_cluster), maxRetry(_maxRetry),
-      coroutineStack(_coroutineStack), log(&Logger::get("pingcap.bcos2pc")),
+      coroutineStack(_coroutineStack), log(&Logger::get("bcos.2pc")),
       logStream(*log) {
   start_ts = cluster->pd_client->getTS();
   start_time = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -375,6 +375,42 @@ void BCOSTwoPhaseCommitter::commitSingleBatch(Backoffer &bo,
   }
 
   commited = true;
+}
+
+void RawKVClient::put(const std::string_view &_key,
+                      const std::string_view &value) {
+  auto key = std::string(_key);
+  // find region
+  Backoffer bo(GetMaxBackoff);
+  while (1) {
+    m_retry++;
+    if (m_retry >= m_maxRetry) {
+      log->warning("raw put after retries");
+      throw Exception("raw put after retries", UnknownError);
+    }
+    auto loc = cluster->region_cache->locateKey(bo, key);
+    // construct request
+    auto req = std::make_shared<kvrpcpb::RawPutRequest>();
+    req->set_key(std::string(key));
+    req->set_value(std::string(value));
+    req->set_ttl(0);
+    std::shared_ptr<kvrpcpb::RawPutResponse> response;
+    RegionClient region_client(cluster, loc.region);
+    try {
+      response = region_client.sendReqToRegion(bo, req);
+    } catch (Exception &e) {
+      log->warning("raw put Exception, " + std::string(e.what()) + ":" +
+                   e.message());
+      bo.backoff(boRegionMiss, e);
+      continue;
+    }
+    if (!response->error().empty()) {
+      log->warning("raw put error: " + response->error());
+      throw Exception("raw put error: " + response->error(), UnknownError);
+    }
+    break;
+  }
+  m_retry = 0;
 }
 
 } // namespace kv

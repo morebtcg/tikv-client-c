@@ -51,6 +51,6 @@ install(
 
 install(
     EXPORT tikvclientcTargets
-    DESTINATION share/tikv-client-c
+    DESTINATION share/tikvclientc
     NAMESPACE tikvclientc::
 )

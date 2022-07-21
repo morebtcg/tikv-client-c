@@ -27,7 +27,7 @@ target_include_directories(kv_client PUBLIC
     $<BUILD_INTERFACE:${KVPROTO_INCLUDE_DIR}>
     $<BUILD_INTERFACE:${kvClient_INCLUDE_DIR}>
     $<BUILD_INTERFACE:${fiu_include_dirs}>
-    $<INSTALL_INTERFACE:include/tikvclientc>
+    $<INSTALL_INTERFACE:include/pingcap>
     )
 target_link_libraries(kv_client PUBLIC kvproto Poco::Foundation Poco::XML fiu Boost::thread Boost::context gRPC::grpc gRPC::grpc++ ${Protobuf_LIBRARY} ${OPENSSL_LIBRARIES})
 

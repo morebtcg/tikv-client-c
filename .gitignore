@@ -34,8 +34,7 @@
 # build directory
 build
 cmake-build*
-third_party/googletest
-third_party/libfiu
+third_party*
 .cache
 
 # IDE or editor files

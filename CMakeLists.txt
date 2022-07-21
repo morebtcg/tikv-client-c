@@ -36,3 +36,21 @@ endif()
 
 add_subdirectory (third_party)
 add_subdirectory (src)
+
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+  "${CMAKE_SOURCE_DIR}/cmake/tikvclientc-config.cmake.in"
+  "${CMAKE_BINARY_DIR}/tikvclientc-config.cmake"
+  INSTALL_DESTINATION "share/tikvclientc"
+)
+
+install(
+  FILES "${CMAKE_BINARY_DIR}/tikvclientc-config.cmake"
+  DESTINATION "share/tikvclientc"
+)
+
+install(
+    EXPORT tikvclientcTargets
+    DESTINATION share/tikv-client-c
+    NAMESPACE tikvclientc::
+)

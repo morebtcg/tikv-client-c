@@ -23,8 +23,17 @@ if (ENABLE_TESTS)
 endif()
 
 add_library(kv_client ${kvClient_sources})
-target_include_directories(kv_client PUBLIC $<BUILD_INTERFACE:${KVPROTO_INCLUDE_DIR}> $<BUILD_INTERFACE:${kvClient_INCLUDE_DIR}> $<BUILD_INTERFACE:${fiu_include_dirs}> ${Protobuf_INCLUDE_DIR} ${gRPC_INCLUDE_DIRS})
+target_include_directories(kv_client PUBLIC
+    $<BUILD_INTERFACE:${KVPROTO_INCLUDE_DIR}>
+    $<BUILD_INTERFACE:${kvClient_INCLUDE_DIR}>
+    $<BUILD_INTERFACE:${fiu_include_dirs}>
+    $<INSTALL_INTERFACE:include/tikvclientc>
+    )
 target_link_libraries(kv_client PUBLIC kvproto Poco::Foundation Poco::XML fiu Boost::thread Boost::context gRPC::grpc gRPC::grpc++ ${Protobuf_LIBRARY} ${OPENSSL_LIBRARIES})
+
+include(GNUInstallDirs)
+install(TARGETS kv_client fiu kvproto EXPORT tikvclientcTargets ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/pingcap DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/" FILES_MATCHING PATTERN "*.h")
 
 if (ENABLE_TESTS)
     set(BUILD_GMOCK OFF)

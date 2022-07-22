@@ -39,8 +39,8 @@ add_subdirectory (src)
 
 include(CMakePackageConfigHelpers)
 configure_package_config_file(
-  "${CMAKE_SOURCE_DIR}/cmake/tikvclientc-config.cmake.in"
-  "${CMAKE_BINARY_DIR}/tikvclientc-config.cmake"
+  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/tikvclientc-config.cmake.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/tikvclientc-config.cmake"
   INSTALL_DESTINATION "share/tikvclientc"
 )
 
